@@ -1,8 +1,14 @@
 import { cookies } from "next/headers";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config";
 
 export { SUPABASE_ANON_KEY, SUPABASE_URL };
+
+type CookieToSet = {
+  name: string;
+  value: string;
+  options?: Record<string, unknown>;
+};
 
 /** Server-side Supabase client. RLS is always in effect — this key is the anon key. */
 export function createClient() {
@@ -10,21 +16,21 @@ export function createClient() {
 
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
+      // getAll/setAll is the current @supabase/ssr cookie adapter. The older
+      // get/set/remove trio is deprecated and mishandles chunked cookies —
+      // large session tokens are split across `sb-...auth-token.0`, `.1`, …
+      // and a per-name `get` returns only the first chunk.
+      getAll() {
+        return cookieStore.getAll();
       },
-      set(name: string, value: string, options: CookieOptions) {
+      setAll(cookiesToSet: CookieToSet[]) {
         try {
-          cookieStore.set({ name, value, ...options });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options),
+          );
         } catch {
-          // called from a Server Component — the middleware refreshes instead
-        }
-      },
-      remove(name: string, options: CookieOptions) {
-        try {
-          cookieStore.set({ name, value: "", ...options });
-        } catch {
-          /* ignore */
+          // Called from a Server Component, where cookies are read-only.
+          // The middleware refreshes the session instead — that is expected.
         }
       },
     },

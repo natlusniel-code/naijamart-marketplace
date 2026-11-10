@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { NIGERIA_STATES, lgasFor, cn } from "@/lib/utils";
 import { Spinner, Alert } from "@/components/ui";
+import { GoogleButton } from "@/components/google-button";
 
 type Props = { initialRole: "buyer" | "seller" };
 
@@ -35,7 +36,6 @@ export function SignupDetails({ initialRole }: Props) {
   const [show, setShow] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [googleBusy, setGoogleBusy] = useState(false);
 
   const lg = lgasFor(form.state);
   const score = passwordScore(form.password);
@@ -74,7 +74,7 @@ export function SignupDetails({ initialRole }: Props) {
           city: form.city,
           role,
         },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?role=${role}`,
       },
     });
 
@@ -101,25 +101,6 @@ export function SignupDetails({ initialRole }: Props) {
     router.push(
       `/signup/verify?email=${encodeURIComponent(form.email.trim())}&role=${role}`,
     );
-  }
-
-  async function google() {
-    setGoogleBusy(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?role=${role}`,
-        queryParams: { access_type: "offline", prompt: "consent" },
-      },
-    });
-    if (error) {
-      setGoogleBusy(false);
-      setErrors({
-        form:
-          "Google sign-in isn't switched on for this project yet. Use your email and password, or ask the admin to enable Google in Supabase → Authentication → Providers.",
-      });
-    }
   }
 
   return (
@@ -282,23 +263,10 @@ export function SignupDetails({ initialRole }: Props) {
           {busy ? <><Spinner /> Creating account…</> : "Create account"}
         </button>
 
-        <div className="flex items-center gap-3 py-1">
-          <span className="h-px flex-1 bg-[var(--line)]" />
-          <span className="text-[12px] font-medium text-ink-400">or</span>
-          <span className="h-px flex-1 bg-[var(--line)]" />
-        </div>
-
-        <button type="button" onClick={google} disabled={googleBusy} className="nm-btn-ghost w-full !py-2.5">
-          {googleBusy ? <Spinner /> : (
-            <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" width={18} height={18}>
-              <path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.2-2.2H12v4.2h6.5c-.13 1.1-.85 2.7-2.4 3.8l-.02.14 3.5 2.7.24.02c2.2-2 3.5-5 3.5-8.7Z" />
-              <path fill="#34A853" d="M12 24c3.2 0 5.9-1.06 7.8-2.9l-3.7-2.86c-1 .7-2.3 1.2-4.1 1.2-3.1 0-5.8-2.05-6.7-4.9l-.14.01-3.6 2.8-.05.13C3.4 21.3 7.4 24 12 24Z" />
-              <path fill="#FBBC05" d="M5.3 14.5a7.4 7.4 0 0 1 0-4.98V9.5L1.6 6.66l-.12.05A12 12 0 0 0 0 12c0 1.9.46 3.7 1.48 5.3l3.8-2.8Z" />
-              <path fill="#EA4335" d="M12 4.75c2.2 0 3.7.95 4.5 1.75l3.3-3.2C17.9 1.2 15.2 0 12 0 7.4 0 3.4 2.7 1.5 6.7l3.85 2.82C6.2 6.8 8.9 4.75 12 4.75Z" />
-            </svg>
-          )}
-          Continue with Google
-        </button>
+        <GoogleButton
+          redirectTo={`/auth/callback?role=${role}`}
+          onError={(message) => setErrors({ form: message })}
+        />
       </form>
 
       <p className="mt-4 text-center text-[13px] text-ink-500">

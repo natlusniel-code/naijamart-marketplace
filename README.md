@@ -97,9 +97,12 @@ success, not a failure. A **500** on any of them means the middleware is throwin
 
 - **Database** — all 19 NaijaMart tables, indexes, triggers and the 11 seeded categories
   (`sql/0001_schema.sql`).
-- **Auth** — email signup with a 6-digit code works out of the box; the `handle_new_user()`
-  trigger auto-creates a profile on signup. Google OAuth is implemented in the app and starts
-  working as soon as the provider is enabled in the dashboard (see §5).
+- **Auth** — email signup sends a **confirmation link** (the project uses the stock Supabase
+  template, which renders `{{ .ConfirmationURL }}`, not a code). The `handle_new_user()` trigger
+  auto-creates a profile on signup. Google OAuth is wired end to end in the app but the provider
+  is **not enabled** on this project, so the UI hides the Google button until it is — see §1c.
+- **Redirect URLs** — `site_url` is set to the deployed origin and the allow-list covers it plus
+  `localhost:3000`, so confirmation links and OAuth callbacks land back in the app.
 - **Row Level Security** — policies on every table plus the `is_admin()`, `owns_shop()`,
   `can_see_order()`, `can_see_chat()` helpers and the guard triggers (`sql/0002_rls.sql`).
 - **Business-rule RPCs** — `place_order`, `admin_verify_payment`, `confirm_delivery`,
@@ -120,6 +123,86 @@ npm run build && npm start
 
 > Two `next.config.mjs` settings (`experimental.cpus: 1`, `workerThreads: false`) keep `next build`
 > inside a 2 GB sandbox. Remove them on a normal machine if you prefer the default worker pool.
+
+---
+
+## 1c. Auth: Google button visibility & the email-link flow
+
+Both rules below exist because the UI was promising something the project could not deliver. Worth
+reading before touching `src/components/google-button.tsx` or `src/components/signup/verify-email.tsx`.
+
+### Why the Google button is hidden, not just broken-on-click
+
+`supabase.auth.signInWithOAuth({ provider: "google" })` **does not validate the provider**. It builds
+`${SUPABASE_URL}/auth/v1/authorize?provider=google` and **navigates the browser there**. With the
+provider disabled, that URL answers with a JSON body and the browser renders it as a page:
+
+```
+GET https://<ref>.supabase.co/auth/v1/authorize?provider=google
+HTTP/2 400
+content-type: application/json
+x-sb-error-code: validation_failed
+
+{"code":400,"error_code":"validation_failed","msg":"Unsupported provider: provider is not enabled"}
+```
+
+The tab has already left the app, so the `if (error)` branch a naive implementation relies on
+**never runs**. The user is stranded on raw JSON. The only reliable fix is to ask the project what
+it supports *before* rendering a button:
+
+```
+GET https://<ref>.supabase.co/auth/v1/settings   # public, CORS-enabled
+→ { "external": { "email": true, "google": false, ... } }
+```
+
+`src/lib/supabase/auth-providers.ts` does that once per page load. `src/components/google-button.tsx`
+then renders three states:
+
+| Provider state | UI |
+|---|---|
+| `google: true` | Divider + working **Continue with Google** |
+| `google: false` | No button; a one-line note: *"Email sign-in only for now — Google sign-in isn't enabled on this project."* |
+| settings call failed | Treated as `false` (fails closed — hides a button rather than sending the user to JSON) |
+
+**To turn Google on**, no code change is needed: enable the provider in Supabase and the button
+reappears on the next load. Full steps in §5.
+
+### Why the sign-up screen describes a link, not a code
+
+The project's **Confirm signup** template is the stock Supabase one:
+
+```html
+<h2>Confirm your email address</h2>
+<p>Follow the link below to confirm this email address and finish signing up.</p>
+<p><a href="{{ .ConfirmationURL }}">Confirm email address</a></p>
+```
+
+It contains `{{ .ConfirmationURL }}` and **no `{{ .Token }}`** — so the email holds a link and no
+code. A 6-digit input box therefore asks the user to type something that was never sent. `verify-email.tsx`
+now states that a confirmation link was emailed, and `emailRedirectTo` points at `/auth/callback` so
+clicking it signs the user in and lands them in the app (sellers → `/seller/onboarding`).
+
+**If you'd rather use a code**, do both of these together or the mismatch returns:
+
+1. Supabase → Authentication → Email Templates → **Confirm signup**: add `{{ .Token }}` to print the
+   code (e.g. `<p>Your code is <strong>{{ .Token }}</strong></p>`).
+2. Switch `verify-email.tsx` back to a code input calling
+   `supabase.auth.verifyOtp({ email, token, type: "signup" })`.
+
+### Redirect URLs (already configured)
+
+| Auth setting | Value |
+|---|---|
+| `site_url` | `https://naijamart-marketplace-n.vercel.app` |
+| `uri_allow_list` | `https://naijamart-marketplace-n.vercel.app/**`, `…/auth/callback`, `http://localhost:3000/**`, `http://localhost:3000/auth/callback` |
+
+`site_url` was previously `http://localhost:3000` with an **empty** allow-list, which silently broke
+every confirmation link and OAuth callback on the deployed domain. When you add a custom domain, add
+it to both (or `/auth/callback` will bounce to the wrong origin).
+
+`/auth/callback` also sanitises `next` (rejecting `//evil.com` and absolute URLs) and converts
+Supabase's `?error_description=` into `?error=google_disabled|expired|auth`, which the sign-in page
+turns into friendly copy.
 
 ---
 
@@ -289,8 +372,8 @@ apikey: <service role key>       # server-side only
 | **Applying the SQL** | ✅ Done on `solo proud` | Already applied — re-run the six files in the SQL editor only if you reset the project (§2) |
 | **Vercel env vars** | Optional — the app has a built-in fallback (§1b) | Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and **`JOBS_SECRET`** in Vercel → Settings → Environment Variables. `JOBS_SECRET` is required for the `/api/jobs/run` route to work. |
 | **`run_order_timers` schedule** | ✅ Done on `solo proud` | Scheduled with pg_cron every 15 min (§4) |
-| **Google sign-in** | Google OAuth is **not enabled** on this Supabase project (the auth settings endpoint returns no external providers) | Supabase → Authentication → Providers → Google: add Client ID/Secret, then add `https://<your-domain>/auth/callback` to *Redirect URLs*. The "Continue with Google" button already calls `signInWithOAuth` and the `/auth/callback` route is implemented — it starts working the moment the provider is switched on. |
-| **Email verification code** | Email signup **is** enabled and sends a 6-digit code | Works out of the box. For testing, Supabase's default mailer is rate-limited (~4/hour) — add your own SMTP under Auth → Email for real volume. |
+| **Google sign-in** | **Not enabled** on `solo proud` — `external_google_enabled: false` and both client id/secret are `null`. There are no Google OAuth credentials in this repo, so it cannot be switched on from code. | The app now **detects this at runtime** (`GET /auth/v1/settings`) and hides the Google button, showing *"Email sign-in only for now — Google sign-in isn't enabled on this project."* instead of walking the user into a JSON error page (§1c). To enable it: create an OAuth client in Google Cloud Console with the authorised redirect URI `https://ecejkevdfpzfvwfjjqwc.supabase.co/auth/v1/callback`, paste the Client ID + Secret into Supabase → Authentication → Providers → Google, toggle it on. **No code change is needed** — the button reappears on the next page load. |
+| **Email verification link** | Email signup **is** enabled and sends a **confirmation link**, not a code | Works out of the box; `/signup/verify` now describes a link and the UI no longer asks for a 6-digit code (§1c). For testing, Supabase's default mailer is rate-limited (~4/hour) — add your own SMTP under Auth → Email for real volume. To switch to a *code* instead, put `{{ .Token }}` in the Confirm-signup template and follow the note in §1c. |
 | **Bank details** | Set to **SmartCash** | Admin → Settings → Escrow bank account. Currently `SmartCash · 9111356510 · Anifowose Mutiu Ayinde` (also the default in `platform_settings` and `sql/0001_schema.sql`) |
 | **Email / WhatsApp notifications on reject** | No mail or WhatsApp provider is connected | Every reject reason is stored and shown in-app (order detail, seller settings, subscription page). Add Resend/Termii + a server action if you want it pushed out. |
 | **Sales tax / receipts automation** | Out of scope | — |
