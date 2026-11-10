@@ -264,8 +264,10 @@ POST https://<your-app-domain>/api/jobs/run
 x-jobs-secret: <JOBS_SECRET>
 ```
 
-`vercel.json` already registers this as a **Vercel Cron** job (`*/15 * * * *`), so on Vercel it runs
-with no extra setup — just set `JOBS_SECRET` in the project's environment variables.
+`vercel.json` is deliberately **not** used for this. A `*/15` cron would be rejected on a Vercel
+Hobby plan (Hobby allows only once-per-day schedules) and a rejected `vercel.json` can block a
+deployment. The timers are already covered by pg_cron on the `solo proud` project, so this route is
+only needed if you want to drive them from an external scheduler instead.
 
 > **`JOBS_SECRET` is required for this route.** Without it the route returns
 > `500 {"ok":false,"error":"JOBS_SECRET is not configured on the server."}` — by design, so it can
@@ -285,7 +287,7 @@ apikey: <service role key>       # server-side only
 | Item | Why | What to do |
 |---|---|---|
 | **Applying the SQL** | ✅ Done on `solo proud` | Already applied — re-run the six files in the SQL editor only if you reset the project (§2) |
-| **Vercel env vars** | Optional — the app has a built-in fallback (§1b) | Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and **`JOBS_SECRET`** in Vercel → Settings → Environment Variables. `JOBS_SECRET` is required for the cron route to work. |
+| **Vercel env vars** | Optional — the app has a built-in fallback (§1b) | Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and **`JOBS_SECRET`** in Vercel → Settings → Environment Variables. `JOBS_SECRET` is required for the `/api/jobs/run` route to work. |
 | **`run_order_timers` schedule** | ✅ Done on `solo proud` | Scheduled with pg_cron every 15 min (§4) |
 | **Google sign-in** | Google OAuth is **not enabled** on this Supabase project (the auth settings endpoint returns no external providers) | Supabase → Authentication → Providers → Google: add Client ID/Secret, then add `https://<your-domain>/auth/callback` to *Redirect URLs*. The "Continue with Google" button already calls `signInWithOAuth` and the `/auth/callback` route is implemented — it starts working the moment the provider is switched on. |
 | **Email verification code** | Email signup **is** enabled and sends a 6-digit code | Works out of the box. For testing, Supabase's default mailer is rate-limited (~4/hour) — add your own SMTP under Auth → Email for real volume. |
