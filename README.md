@@ -281,18 +281,47 @@ RPC argument mismatches (now fixed in `receipt-review.tsx` and `seller-actions.t
 
 ## 3. Make yourself the admin
 
-1. Sign up normally at `/signup` (any role).
-2. In the SQL editor:
+Admins have their **own** auth pages — they are never sent to the buyer/seller sign-in:
+
+| Page | Purpose |
+|---|---|
+| `/admin-fuckliving/signin` | Admin sign-in (big **ADMIN** header) |
+| `/admin-fuckliving/signup` | Create the admin account |
+
+### The easy way — first signup becomes admin
+
+1. Open **`/admin-fuckliving`**. You are redirected to `/admin-fuckliving/signin`.
+2. Click **Create one** → `/admin-fuckliving/signup`.
+3. Fill in your name, email and password, then confirm your email via the link we send.
+4. You land **straight in the admin console**.
+
+That works because of `claim_first_admin()` (`sql/0007_admin_bootstrap.sql`), a
+`SECURITY DEFINER` function that promotes the caller **only while `admin_users` is empty**.
+It is a one-shot bootstrap: once one admin exists it returns `false` and refuses, so it can
+never be used to escalate later. It also only ever acts on `auth.uid()` — you cannot
+make someone else an admin with it.
+
+### Adding more admins
+
+After the first admin exists, self sign-up can no longer grant access. Add people by hand:
 
 ```sql
 insert into public.admin_users (user_id, email)
 select id, email from auth.users where email = 'you@example.com';
 ```
 
-3. Sign out and in again, then open **`/admin-fuckliving`**.
+Then have them sign in at `/admin-fuckliving/signin`.
 
-Any account that is not in `admin_users` sees an "Admins only" card — the layout checks on the
-server *and* RLS enforces it, so it is not a client-side gate.
+### What a non-admin sees
+
+A valid buyer or seller account is **not** an admin. Signing in at the admin page with one
+gets a clear message — *"That account isn't an admin. This area is limited to emails on the
+admin list…"* — and the session is signed straight back out, so no half-authenticated state
+is left behind. The console layout also re-checks on the server and RLS enforces it, so this
+is not a client-side gate.
+
+> **Note:** the admin sign-up form needs a real email domain. Supabase rejects reserved TLDs
+> such as `.test` / `.local` with *"Email address … is invalid"*.
 
 ### Changing the admin path
 

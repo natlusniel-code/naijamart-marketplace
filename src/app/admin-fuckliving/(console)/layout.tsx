@@ -10,25 +10,18 @@ export const metadata = { title: "NaijaMart admin" };
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
 
+  // Admins get their OWN sign-in page. Sending them to the buyer/seller page
+  // was the bug: it offered "create a buyer account" to someone who came here
+  // to administer the marketplace.
   if (!session) {
-    redirect(`/signin?next=${encodeURIComponent("/admin-fuckliving")}`);
+    redirect("/admin-fuckliving/signin");
   }
 
+  // Signed in but not on the admin list. Bounce to the admin sign-in with a
+  // reason, so the message is shown in the admin area rather than as a dead
+  // end inside the console.
   if (!session.isAdmin) {
-    return (
-      <div className="grid min-h-screen place-items-center px-4">
-        <div className="nm-card w-full max-w-sm p-6 text-center">
-          <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-red-50 text-xl">🔒</div>
-          <h1 className="mt-3 text-[18px] font-extrabold text-ink-900">Admins only</h1>
-          <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-500">
-            This account isn&apos;t on the admin list. Ask an existing admin to add your email to{" "}
-            <code className="rounded bg-slate-100 px-1 font-mono text-[11px]">admin_users</code>, or run the SQL in the README.
-          </p>
-          <p className="mt-2 text-[11.5px] text-ink-400">{session.profile.email}</p>
-          <Link href="/" className="nm-btn-ghost mt-4 w-full">Back to the marketplace</Link>
-        </div>
-      </div>
-    );
+    redirect("/admin-fuckliving/signin?error=not_admin");
   }
 
   return (

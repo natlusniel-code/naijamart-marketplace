@@ -66,9 +66,32 @@ export async function GET(request: Request) {
     if (!prof?.avatar_url && meta.avatar_url) patch.avatar_url = meta.avatar_url;
     if (!prof?.full_name && meta.full_name) patch.full_name = meta.full_name;
     if (role === "seller") patch.role = "seller";
+    if (role === "admin") patch.role = "admin";
     if (Object.keys(patch).length && prof) {
       await supabase.from("profiles").update(patch).eq("id", user.id);
     }
+  }
+
+  // Admin sign-up: the account exists but `admin_users` is the only source of
+  // admin truth. `claim_first_admin()` promotes the caller ONLY while that
+  // table is empty, so this is the one-shot bootstrap. If an admin already
+  // exists it returns false and we must not let the user into the console.
+  if (role === "admin" && user) {
+    await supabase.rpc("claim_first_admin");
+
+    const { data: adminRow } = await supabase
+      .from("admin_users")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!adminRow) {
+      // Not an admin — do not leave a half-authenticated session behind.
+      await supabase.auth.signOut();
+      return NextResponse.redirect(`${origin}/admin-fuckliving/signin?error=not_admin`);
+    }
+
+    return NextResponse.redirect(`${origin}/admin-fuckliving`);
   }
 
   // A seller who just confirmed should continue their shop setup; a buyer goes
