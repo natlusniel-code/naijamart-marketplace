@@ -112,8 +112,10 @@ success, not a failure. A **500** on any of them means the middleware is throwin
   (`sql/0005_seed.sql`).
 - **Scheduled job** — `run_order_timers()` is scheduled with pg_cron every 15 minutes.
 
-The app runs on the **publishable (anon) key + RLS only** — never put a service-role key in the
-client. The anon key is safe to expose in the browser by design.
+The buyer/seller app runs on the **publishable (anon) key + RLS only** — the anon key is safe to
+expose in the browser by design. The **admin console** is the one exception: it reads through a
+server-side service-role client (`src/lib/supabase/admin.ts`, `server-only`) so it can work
+without a login. That key must never reach the browser — see §3.
 
 Production build:
 
@@ -279,49 +281,61 @@ RPC argument mismatches (now fixed in `receipt-review.tsx` and `seller-actions.t
 
 ---
 
-## 3. Make yourself the admin
+## 3. The admin console — no login
 
-Admins have their **own** auth pages — they are never sent to the buyer/seller sign-in:
+**`/admin-fuckliving` loads directly.** There is no admin sign-in page, no sign-up page and no
+redirect: every admin URL (orders, payouts, disputes, payments, sellers, buyers, reviews,
+settings) renders straight away. This is a deliberate product decision — a single-operator back
+office behind an obscure path — not an oversight.
 
-| Page | Purpose |
-|---|---|
-| `/admin-fuckliving/signin` | Admin sign-in (big **ADMIN** header) |
-| `/admin-fuckliving/signup` | Create the admin account |
+### How it reads the database without a session
 
-### The easy way — first signup becomes admin
+Every admin-relevant RLS policy is gated on `is_admin()`, and an anonymous request is not an
+admin. Rather than weaken those policies (which would expose every buyer's orders, addresses and
+payout details to anyone holding the public anon key), the console talks to the database through
+the **service-role key**, which bypasses RLS:
 
-1. Open **`/admin-fuckliving`**. You are redirected to `/admin-fuckliving/signin`.
-2. Click **Create one** → `/admin-fuckliving/signup`.
-3. Fill in your name, email and password, then confirm your email via the link we send.
-4. You land **straight in the admin console**.
+- `src/lib/supabase/admin.ts` — the server-only client. It imports `server-only`, so any
+  accidental import from a Client Component is a **compile error** rather than a leaked key.
+- `src/app/admin-fuckliving/actions.ts` — every mutation (verify payment, mark payout paid,
+  resolve dispute, approve/suspend shop, ban buyer, moderate review, save settings, manage
+  categories) is a **Server Action**. The browser never sees the key and never calls Supabase
+  directly for admin work.
+- The key is read **only** from `SUPABASE_SERVICE_ROLE_KEY` and is deliberately **not** given a
+  literal fallback in code — baking one in would put a full-admin credential in a public repo.
 
-That works because of `claim_first_admin()` (`sql/0007_admin_bootstrap.sql`), a
-`SECURITY DEFINER` function that promotes the caller **only while `admin_users` is empty**.
-It is a one-shot bootstrap: once one admin exists it returns `false` and refuses, so it can
-never be used to escalate later. It also only ever acts on `auth.uid()` — you cannot
-make someone else an admin with it.
+### Required environment variable
 
-### Adding more admins
+```bash
+SUPABASE_SERVICE_ROLE_KEY=<service role key>   # server-side only, never NEXT_PUBLIC_
+```
 
-After the first admin exists, self sign-up can no longer grant access. Add people by hand:
+Set it in **Vercel → Settings → Environment Variables** (and in `.env.local` for local dev).
+Find it in Supabase → Project Settings → API → `service_role`.
+
+**Without it the console still renders** — it falls back to the anon key (already public) and
+shows an amber banner: *"Admin database access is not configured."* Pages load but return no
+rows and no admin action can be saved. That is intentional: a missing key should look like a
+configuration problem, not like "no orders yet".
+
+> ⚠️ **This means the admin console is open to anyone who knows the URL.** That is the trade-off
+> that was asked for. If you later want it locked down, the cleanest path is to re-add a session
+> check in `src/app/admin-fuckliving/(console)/layout.tsx` and keep the service-role client for
+> the reads — the data layer does not need to change.
+
+### Adding admins to `admin_users`
+
+`admin_users` is still the source of truth for `is_admin()` (used by RLS on the buyer/seller side
+and by the SQL helpers). Add people by hand:
 
 ```sql
 insert into public.admin_users (user_id, email)
 select id, email from auth.users where email = 'you@example.com';
 ```
 
-Then have them sign in at `/admin-fuckliving/signin`.
-
-### What a non-admin sees
-
-A valid buyer or seller account is **not** an admin. Signing in at the admin page with one
-gets a clear message — *"That account isn't an admin. This area is limited to emails on the
-admin list…"* — and the session is signed straight back out, so no half-authenticated state
-is left behind. The console layout also re-checks on the server and RLS enforces it, so this
-is not a client-side gate.
-
-> **Note:** the admin sign-up form needs a real email domain. Supabase rejects reserved TLDs
-> such as `.test` / `.local` with *"Email address … is invalid"*.
+`claim_first_admin()` (`sql/0007_admin_bootstrap.sql`) is still deployed and still safe — it
+promotes the caller only while `admin_users` is empty — but nothing in the UI calls it any more,
+since there is no admin sign-up page.
 
 ### Changing the admin path
 
@@ -399,7 +413,7 @@ apikey: <service role key>       # server-side only
 | Item | Why | What to do |
 |---|---|---|
 | **Applying the SQL** | ✅ Done on `solo proud` | Already applied — re-run the six files in the SQL editor only if you reset the project (§2) |
-| **Vercel env vars** | Optional — the app has a built-in fallback (§1b) | Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and **`JOBS_SECRET`** in Vercel → Settings → Environment Variables. `JOBS_SECRET` is required for the `/api/jobs/run` route to work. |
+| **Vercel env vars** | The two `NEXT_PUBLIC_*` vars are optional (built-in fallback, §1b); the other two are not | Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, **`JOBS_SECRET`** and **`SUPABASE_SERVICE_ROLE_KEY`** in Vercel → Settings → Environment Variables. `JOBS_SECRET` is required for `/api/jobs/run`; `SUPABASE_SERVICE_ROLE_KEY` is required for the admin console to read or write anything (§3). |
 | **`run_order_timers` schedule** | ✅ Done on `solo proud` | Scheduled with pg_cron every 15 min (§4) |
 | **Google sign-in** | **Not enabled** on `solo proud` — `external_google_enabled: false` and both client id/secret are `null`. There are no Google OAuth credentials in this repo, so it cannot be switched on from code. | The app now **detects this at runtime** (`GET /auth/v1/settings`) and hides the Google button, showing *"Email sign-in only for now — Google sign-in isn't enabled on this project."* instead of walking the user into a JSON error page (§1c). To enable it: create an OAuth client in Google Cloud Console with the authorised redirect URI `https://ecejkevdfpzfvwfjjqwc.supabase.co/auth/v1/callback`, paste the Client ID + Secret into Supabase → Authentication → Providers → Google, toggle it on. **No code change is needed** — the button reappears on the next page load. |
 | **Email verification link** | Email signup **is** enabled and sends a **confirmation link**, not a code | Works out of the box; `/signup/verify` now describes a link and the UI no longer asks for a 6-digit code (§1c). For testing, Supabase's default mailer is rate-limited (~4/hour) — add your own SMTP under Auth → Email for real volume. To switch to a *code* instead, put `{{ .Token }}` in the Confirm-signup template and follow the note in §1c. |

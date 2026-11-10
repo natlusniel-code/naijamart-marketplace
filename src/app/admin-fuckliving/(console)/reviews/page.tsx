@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { shortDate } from "@/lib/utils";
 import { Card, Badge, EmptyState, Star } from "@/components/ui";
 import { ReviewModeration } from "@/components/admin/review-moderation";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Reviews" };
 
 export default async function AdminReviewsPage() {
-  const supabase = createClient();
+  const supabase = createAdminClient();
   // No FK to profiles exists for buyer_id (it points at auth.users), so the buyer
   // name is joined in memory from the public profile view.
   const { data: reviews } = await supabase

@@ -1,44 +1,58 @@
-import { redirect } from "next/navigation";
-import { getSession } from "@/lib/supabase/server";
 import { Logo, Badge } from "@/components/ui";
 import { AdminNav } from "@/components/admin/admin-nav";
+import { hasAdminKey } from "@/lib/supabase/admin";
 import Link from "next/link";
 
+/**
+ * Admin console shell.
+ *
+ * There is deliberately NO auth gate here — /admin-fuckliving loads directly, as
+ * requested. That is safe only because the data is fetched server-side with the
+ * service-role key (see `src/lib/supabase/admin.ts`) and the browser never
+ * receives that key.
+ *
+ * `force-dynamic` is required: every admin page shows live business numbers, so
+ * nothing here may be statically cached at build time.
+ */
 export const dynamic = "force-dynamic";
 export const metadata = { title: "NaijaMart admin" };
 
-export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const session = await getSession();
-
-  // Admins get their OWN sign-in page. Sending them to the buyer/seller page
-  // was the bug: it offered "create a buyer account" to someone who came here
-  // to administer the marketplace.
-  if (!session) {
-    redirect("/admin-fuckliving/signin");
-  }
-
-  // Signed in but not on the admin list. Bounce to the admin sign-in with a
-  // reason, so the message is shown in the admin area rather than as a dead
-  // end inside the console.
-  if (!session.isAdmin) {
-    redirect("/admin-fuckliving/signin?error=not_admin");
-  }
-
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-[var(--canvas)]">
       <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5">
           <Logo />
-          <Badge tone="gray" className="hidden sm:inline-flex">Admin</Badge>
+          <Badge tone="gray" className="hidden sm:inline-flex">
+            Admin
+          </Badge>
           <div className="ml-auto flex items-center gap-3 text-[12.5px]">
-            <Link href="/" className="font-semibold text-ink-500 hover:text-ink-900">Storefront</Link>
-            <span className="hidden text-ink-400 sm:inline">{session.profile.email}</span>
+            <Link href="/" className="font-semibold text-ink-500 hover:text-ink-900">
+              Storefront
+            </Link>
           </div>
         </div>
         <div className="mx-auto max-w-7xl px-4">
           <AdminNav />
         </div>
       </header>
+
+      {/* Without the service-role key the console can read nothing. Say so loudly
+          instead of rendering an empty dashboard that looks like "no orders yet". */}
+      {!hasAdminKey && (
+        <div className="mx-auto max-w-7xl px-4 pt-3">
+          <div className="rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-[12.5px] text-amber-900">
+            <strong className="font-bold">Admin database access is not configured.</strong>{" "}
+            Set{" "}
+            <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">
+              SUPABASE_SERVICE_ROLE_KEY
+            </code>{" "}
+            in the server environment (Vercel → Settings → Environment Variables) and redeploy.
+            Until then every page below is empty and no admin action can be saved. See README §1d.
+          </div>
+        </div>
+      )}
+
       <main className="mx-auto max-w-7xl px-4 py-4 pb-16">{children}</main>
     </div>
   );

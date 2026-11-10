@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { markPayoutPaid } from "@/app/admin-fuckliving/actions";
 import { Spinner } from "@/components/ui";
 
 export function MarkPaid({ payoutId }: { payoutId: string }) {
@@ -14,15 +14,12 @@ export function MarkPaid({ payoutId }: { payoutId: string }) {
 
   async function mark() {
     setBusy(true);
-    const supabase = createClient();
-    // Goes through the RPC so the payout row and its orders.payout_status stay in sync.
-    const { error } = await supabase.rpc("admin_mark_payout_paid", {
-      p_payout_id: payoutId,
-      p_reference: ref.trim() || null,
-    });
+    setErr(null);
+    // Server Action — the service-role key never reaches this component.
+    const result = await markPayoutPaid(payoutId, ref.trim() || undefined);
     setBusy(false);
-    if (error) {
-      setErr(error.message);
+    if (!result.ok) {
+      setErr(result.error ?? "Could not save.");
       return;
     }
     setOpen(false);

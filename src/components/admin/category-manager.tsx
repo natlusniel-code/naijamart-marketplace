@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { addCategory, toggleCategory } from "@/app/admin-fuckliving/actions";
 import { Badge } from "@/components/ui";
 import { slugify } from "@/lib/utils";
 
@@ -10,26 +10,27 @@ export function CategoryManager({ categories }: { categories: any[] }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (name.trim().length < 2) return;
     setBusy(true);
-    const supabase = createClient();
-    await supabase.from("categories").insert({
-      name: name.trim(),
-      slug: slugify(name),
-      sort_order: (categories.at(-1)?.sort_order ?? 0) + 10,
-      icon: "🏷️",
-    });
-    setName("");
+    const result = await addCategory(
+      name.trim(),
+      slugify(name),
+      (categories.at(-1)?.sort_order ?? 0) + 10,
+    );
     setBusy(false);
+    if (!result.ok) { setErr(result.error ?? "Could not add."); return; }
+    setErr("");
+    setName("");
     router.refresh();
   }
 
   async function toggle(id: string, active: boolean) {
-    const supabase = createClient();
-    await supabase.from("categories").update({ active: !active }).eq("id", id);
+    const result = await toggleCategory(id, active);
+    if (!result.ok) { setErr(result.error ?? "Could not update."); return; }
     router.refresh();
   }
 
@@ -39,6 +40,7 @@ export function CategoryManager({ categories }: { categories: any[] }) {
         <input className="nm-input !py-1.5 !text-[12px]" placeholder="New category name" value={name} onChange={(e) => setName(e.target.value)} />
         <button disabled={busy} className="nm-btn-primary !px-3 !py-1.5 !text-[11.5px]">Add</button>
       </form>
+      {err && <p className="mt-1 text-[10.5px] font-medium text-red-600">{err}</p>}
 
       <ul className="mt-2 divide-y divide-[var(--line)]">
         {categories.map((c) => (

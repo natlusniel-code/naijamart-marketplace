@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { shortDate } from "@/lib/utils";
 import { Card, Badge, EmptyState, Avatar } from "@/components/ui";
 import { BuyersTable } from "@/components/admin/buyers-table";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Buyers" };
 
 export default async function AdminBuyersPage() {
-  const supabase = createClient();
+  const supabase = createAdminClient();
   const { data: buyers } = await supabase
     .from("profiles")
     .select("id,full_name,email,phone,state,city,created_at,is_banned,avatar_url")

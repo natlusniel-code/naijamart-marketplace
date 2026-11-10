@@ -2,17 +2,19 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { moderateReview } from "@/app/admin-fuckliving/actions";
 
 export function ReviewModeration({ reviewId, status, flagged }: { reviewId: string; status: string; flagged: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
-  async function update(patch: Record<string, any>) {
+  async function update(patch: { status?: "published" | "hidden" }) {
     setBusy(true);
-    const supabase = createClient();
-    await supabase.from("reviews").update(patch).eq("id", reviewId);
+    setErr("");
+    const result = await moderateReview(reviewId, patch.status ?? (status === "published" ? "hidden" : "published"));
     setBusy(false);
+    if (!result.ok) { setErr(result.error ?? "Could not save."); return; }
     router.refresh();
   }
 
@@ -21,11 +23,9 @@ export function ReviewModeration({ reviewId, status, flagged }: { reviewId: stri
       {status === "published" ? (
         <button disabled={busy} onClick={() => update({ status: "hidden" })} className="text-red-600">Hide</button>
       ) : (
-        <button disabled={busy} onClick={() => update({ status: "published", flagged: false })} className="text-brand-600">Publish</button>
+        <button disabled={busy} onClick={() => update({ status: "published" })} className="text-brand-600">Publish</button>
       )}
-      <button disabled={busy} onClick={() => update({ flagged: !flagged })} className="text-ink-500">
-        {flagged ? "Unflag" : "Flag"}
-      </button>
+      {err && <span className="text-[10.5px] font-medium text-red-600">{err}</span>}
     </div>
   );
 }

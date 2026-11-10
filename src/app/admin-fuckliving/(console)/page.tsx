@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { naira, shortDate, ORDER_STATUS } from "@/lib/utils";
 import { Stat, Card, Badge, EmptyState } from "@/components/ui";
 import { AdminRevenueChart } from "@/components/admin/revenue-chart";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin dashboard" };
 
 export default async function AdminDashboard() {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const [{ data: orders }, { data: payments }, { data: payouts }, { data: shops }, { data: profiles }, { data: disputes }] =
     await Promise.all([

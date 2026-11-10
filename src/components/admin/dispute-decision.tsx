@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { resolveDispute } from "@/app/admin-fuckliving/actions";
 
 export function DisputeDecision({ disputeId }: { disputeId: string }) {
   const router = useRouter();
@@ -13,14 +13,9 @@ export function DisputeDecision({ disputeId }: { disputeId: string }) {
   async function decide(outcome: "resolved_buyer" | "resolved_seller") {
     if (note.trim().length < 5) { setErr("Add a one-line resolution note."); return; }
     setBusy(outcome); setErr("");
-    const supabase = createClient();
-    const { error } = await supabase.rpc("admin_resolve_dispute", {
-      p_dispute_id: disputeId,
-      p_outcome: outcome,
-      p_note: note.trim(),
-    });
+    const result = await resolveDispute(disputeId, outcome, note.trim());
     setBusy("");
-    if (error) { setErr(error.message); return; }
+    if (!result.ok) { setErr(result.error ?? "Could not save."); return; }
     router.refresh();
   }
 

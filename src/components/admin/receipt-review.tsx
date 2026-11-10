@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { verifyPayment } from "@/app/admin-fuckliving/actions";
 import { Spinner } from "@/components/ui";
 
 export function ReceiptReview({
@@ -29,14 +29,14 @@ export function ReceiptReview({
       return;
     }
     setBusy(action); setErr("");
-    const supabase = createClient();
-    const { error } = await supabase.rpc("admin_verify_payment", {
-      p_payment_id: paymentId,
-      p_approve: action === "verify",
-      p_reason: action === "reject" ? reason.trim() : null,
-    });
+    // Server Action: runs with the service-role key, so the DB guard still holds.
+    const result = await verifyPayment(
+      paymentId,
+      action === "verify",
+      action === "reject" ? reason.trim() : undefined,
+    );
     setBusy("");
-    if (error) { setErr(error.message); return; }
+    if (!result.ok) { setErr(result.error ?? "Could not save."); return; }
     setRejecting(false);
     router.refresh();
   }

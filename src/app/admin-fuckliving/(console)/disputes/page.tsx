@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { naira, shortDate } from "@/lib/utils";
 import { Card, Badge, EmptyState } from "@/components/ui";
 import { DisputeDecision } from "@/components/admin/dispute-decision";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Disputes" };
 
 export default async function AdminDisputesPage() {
-  const supabase = createClient();
+  const supabase = createAdminClient();
   const { data: disputes } = await supabase
     .from("disputes")
     .select("*, orders(reference,status,total,payout_amount,shop_id,shops(name))")

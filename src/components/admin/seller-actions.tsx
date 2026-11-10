@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { setShopStatus, toggleShopSuspend } from "@/app/admin-fuckliving/actions";
 import { Spinner } from "@/components/ui";
 
 export function SellerDecision({ shopId }: { shopId: string }) {
@@ -18,17 +18,16 @@ export function SellerDecision({ shopId }: { shopId: string }) {
       return;
     }
     setBusy(action); setErr("");
-    const supabase = createClient();
-    // One RPC covers all three outcomes: status + note (+ verify on approve).
+    // One Server Action covers all three outcomes: status + note (+ verify on approve).
     const nextStatus = action === "approve" ? "approved" : action === "reject" ? "rejected" : "pending";
-    const { error } = await supabase.rpc("admin_set_shop_status", {
-      p_shop_id: shopId,
-      p_status: nextStatus,
-      p_note: action === "approve" ? null : note.trim(),
-      p_verified: action === "approve" ? true : null,
-    });
+    const result = await setShopStatus(
+      shopId,
+      nextStatus,
+      action === "approve" ? null : note.trim(),
+      action === "approve" ? true : null,
+    );
     setBusy("");
-    if (error) { setErr(error.message); return; }
+    if (!result.ok) { setErr(result.error ?? "Could not save."); return; }
     setMode("");
     router.refresh();
   }
@@ -75,19 +74,24 @@ export function SellerDecision({ shopId }: { shopId: string }) {
 export function SellerSuspend({ shopId, status }: { shopId: string; status: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const suspended = status === "suspended";
 
   async function toggle() {
     setBusy(true);
-    const supabase = createClient();
-    await supabase.from("shops").update({ status: suspended ? "approved" : "suspended" }).eq("id", shopId);
+    const result = await toggleShopSuspend(shopId, suspended);
     setBusy(false);
+    if (!result.ok) { setErr(result.error ?? "Could not save."); return; }
+    setErr("");
     router.refresh();
   }
 
   return (
-    <button onClick={toggle} disabled={busy} className={`text-[11.5px] font-semibold ${suspended ? "text-brand-600" : "text-red-600"}`}>
-      {busy ? "…" : suspended ? "Reactivate" : "Suspend"}
-    </button>
+    <div className="text-right">
+      <button onClick={toggle} disabled={busy} className={`text-[11.5px] font-semibold ${suspended ? "text-brand-600" : "text-red-600"}`}>
+        {busy ? "…" : suspended ? "Reactivate" : "Suspend"}
+      </button>
+      {err && <p className="mt-0.5 text-[10.5px] font-medium text-red-600">{err}</p>}
+    </div>
   );
 }

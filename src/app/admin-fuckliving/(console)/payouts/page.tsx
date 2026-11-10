@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { naira, shortDate } from "@/lib/utils";
 import { Card, Badge, EmptyState, Stat, Alert } from "@/components/ui";
 import { MarkPaid } from "@/components/admin/mark-paid";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Payouts" };
 
 export default async function AdminPayoutsPage() {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const [{ data: payouts }, { data: orders }] = await Promise.all([
     supabase

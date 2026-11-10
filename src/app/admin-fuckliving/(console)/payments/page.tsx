@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { naira, shortDate } from "@/lib/utils";
 import { Card, Badge, EmptyState } from "@/components/ui";
 import { ReceiptReview } from "@/components/admin/receipt-review";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Payment verification" };
 
 export default async function AdminPaymentsPage() {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const [{ data: pending }, { data: recent }] = await Promise.all([
     supabase

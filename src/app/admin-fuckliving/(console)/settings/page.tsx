@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { Card, Badge } from "@/components/ui";
 import { SettingsForm } from "@/components/admin/settings-form";
 import { CategoryManager } from "@/components/admin/category-manager";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings" };
 
 export default async function AdminSettingsPage() {
-  const supabase = createClient();
+  const supabase = createAdminClient();
   const [{ data: settings }, { data: categories }] = await Promise.all([
     supabase.from("platform_settings").select("*").eq("id", 1).single(),
     supabase.from("categories").select("*").order("sort_order"),

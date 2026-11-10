@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { naira, shortDate } from "@/lib/utils";
 import { Card, Badge, EmptyState, Tabs } from "@/components/ui";
 import { SellerDecision, SellerSuspend } from "@/components/admin/seller-actions";
@@ -9,7 +9,7 @@ export const metadata = { title: "Sellers" };
 
 export default async function AdminSellersPage({ searchParams }: { searchParams: { tab?: string } }) {
   const tab = searchParams.tab ?? "applications";
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { data: shops } = await supabase
     .from("shops")

@@ -2,24 +2,27 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { setBuyerBanned } from "@/app/admin-fuckliving/actions";
 import { Badge, Avatar } from "@/components/ui";
 import { shortDate } from "@/lib/utils";
 
 export function BuyersTable({ buyers }: { buyers: any[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
 
   async function toggleBan(id: string, banned: boolean) {
     setBusy(id);
-    const supabase = createClient();
-    await supabase.from("profiles").update({ is_banned: !banned }).eq("id", id);
+    setErr("");
+    const result = await setBuyerBanned(id, !banned);
     setBusy("");
+    if (!result.ok) { setErr(result.error ?? "Could not save."); return; }
     router.refresh();
   }
 
   return (
     <div className="overflow-x-auto">
+      {err && <p className="px-4 pt-2 text-[11px] font-medium text-red-600">{err}</p>}
       <table className="w-full text-left text-[12px]">
         <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-ink-400">
           <tr>

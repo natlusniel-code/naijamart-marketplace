@@ -74,23 +74,13 @@ export async function GET(request: Request) {
 
   // Admin sign-up: the account exists but `admin_users` is the only source of
   // admin truth. `claim_first_admin()` promotes the caller ONLY while that
-  // table is empty, so this is the one-shot bootstrap. If an admin already
-  // exists it returns false and we must not let the user into the console.
+  // table is empty, so this is the one-shot bootstrap.
+  //
+  // NOTE: the admin console no longer requires a session — /admin-fuckliving
+  // loads directly — so there is no admin sign-in page to bounce to any more.
+  // A `role=admin` signup therefore just lands on the console.
   if (role === "admin" && user) {
     await supabase.rpc("claim_first_admin");
-
-    const { data: adminRow } = await supabase
-      .from("admin_users")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (!adminRow) {
-      // Not an admin — do not leave a half-authenticated session behind.
-      await supabase.auth.signOut();
-      return NextResponse.redirect(`${origin}/admin-fuckliving/signin?error=not_admin`);
-    }
-
     return NextResponse.redirect(`${origin}/admin-fuckliving`);
   }
 

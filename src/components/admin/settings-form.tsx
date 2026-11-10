@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { saveSettings } from "@/app/admin-fuckliving/actions";
 import { Spinner, Alert } from "@/components/ui";
 
 export function SettingsForm({ settings }: { settings: any }) {
@@ -24,8 +24,7 @@ export function SettingsForm({ settings }: { settings: any }) {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setErr(""); setOk(false);
-    const supabase = createClient();
-    const { error } = await supabase.from("settings").update({
+    const result = await saveSettings({
       commission_rate: Number(form.commission_pct) / 100,
       subscription_price: Number(form.subscription_price),
       bank_name: form.bank_name,
@@ -34,9 +33,9 @@ export function SettingsForm({ settings }: { settings: any }) {
       default_delivery_fee: Number(form.default_delivery_fee),
       free_delivery_default: Number(form.free_delivery_default),
       terms_text: form.terms_text,
-    }).eq("id", 1);
+    });
     setBusy(false);
-    if (error) { setErr(error.message); return; }
+    if (!result.ok) { setErr(result.error ?? "Could not save."); return; }
     setOk(true);
     router.refresh();
   }

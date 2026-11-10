@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { naira, shortDate, ORDER_STATUS, cn } from "@/lib/utils";
 import { Card, Badge, EmptyState } from "@/components/ui";
 import { CsvExport } from "@/components/admin/csv-export";
@@ -12,7 +12,7 @@ export default async function AdminOrdersPage({
 }: {
   searchParams: { status?: string; q?: string };
 }) {
-  const supabase = createClient();
+  const supabase = createAdminClient();
   const { data: orders } = await supabase
     .from("orders")
     .select("*, shops(name,slug), order_items(title,quantity,line_total)")
