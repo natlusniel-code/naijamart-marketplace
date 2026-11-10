@@ -12,7 +12,7 @@ A Nigerian marketplace for **goods and services** with **admin-held escrow** and
 
 ```bash
 npm install
-cp .env.local.example .env.local     # both values are already public
+cp .env.local.example .env.local     # optional — see the note below
 npm run dev                          # http://localhost:3000
 ```
 
@@ -22,6 +22,59 @@ npm run dev                          # http://localhost:3000
 NEXT_PUBLIC_SUPABASE_URL=https://ecejkevdfpzfvwfjjqwc.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_nTmbEq4kh7viHqVFiSxtmw_m7Yh5-QI
 ```
+
+> **These two variables are optional.** `src/lib/supabase/config.ts` carries the same values as a
+> literal fallback, so the app builds and runs correctly even on a host with no environment
+> variables configured. Setting them overrides the fallback. See
+> [§1b Why the Supabase config has a fallback](#1b-why-the-supabase-config-has-a-fallback).
+
+---
+
+## 1b. Why the Supabase config has a fallback
+
+This is the fix for the production `500 MIDDLEWARE_INVOCATION_FAILED` that took the whole site
+down. Worth understanding before changing anything in `src/lib/supabase/`.
+
+**What happened.** Next.js inlines `process.env.NEXT_PUBLIC_*` at **build** time. The Vercel
+project had no `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` set, so the Edge
+middleware bundle was compiled with `undefined` for both. `createServerClient(undefined, undefined)`
+throws:
+
+```
+Your project's URL and Key are required to create a Supabase client!
+```
+
+Because middleware runs in front of **every** route, that single throw returned 500 for the entire
+site — including pages that never touch Supabase. Static assets (`/_next/static/...`) still served
+200, which is the tell-tale signature of a middleware-only failure.
+
+**The fix, in two parts:**
+
+1. **`src/lib/supabase/config.ts`** — a single module that resolves the URL and key with a literal
+   fallback. Every client (`client.ts`, `server.ts`, `middleware.ts`, `/api/jobs/run`) imports from
+   it, so the values are always present in the bundle regardless of host configuration.
+2. **`src/lib/supabase/middleware.ts`** — the session refresh is wrapped in `try/catch`. Middleware
+   sits in front of everything, so an unhandled throw there is a site-wide outage. A failed refresh
+   now degrades to "anonymous visitor" and logs, instead of killing the request.
+
+**Verifying it.** Build with the variables deliberately unset — the bundle must still contain the
+URL and key:
+
+```bash
+rm -f .env.local && rm -rf .next && npm run build
+grep -c "ecejkevdfpzfvwfjjqwc" .next/server/src/middleware.js   # must be >= 1
+```
+
+If that count is `0`, the middleware will throw in production. Also confirm the routes answer
+without a 500:
+
+```bash
+npx next start -p 3200
+for p in / /signin /search /orders; do curl -s -o /dev/null -w "$p %{http_code}\n" localhost:3200$p; done
+```
+
+`/orders` and `/seller` correctly return **307** (redirect to sign-in) when signed out — that is
+success, not a failure. A **500** on any of them means the middleware is throwing again.
 
 ---
 
@@ -211,6 +264,13 @@ POST https://<your-app-domain>/api/jobs/run
 x-jobs-secret: <JOBS_SECRET>
 ```
 
+`vercel.json` already registers this as a **Vercel Cron** job (`*/15 * * * *`), so on Vercel it runs
+with no extra setup — just set `JOBS_SECRET` in the project's environment variables.
+
+> **`JOBS_SECRET` is required for this route.** Without it the route returns
+> `500 {"ok":false,"error":"JOBS_SECRET is not configured on the server."}` — by design, so it can
+> never be triggered anonymously.
+
 You can also call the RPC directly from a trusted server:
 
 ```
@@ -225,6 +285,7 @@ apikey: <service role key>       # server-side only
 | Item | Why | What to do |
 |---|---|---|
 | **Applying the SQL** | ✅ Done on `solo proud` | Already applied — re-run the six files in the SQL editor only if you reset the project (§2) |
+| **Vercel env vars** | Optional — the app has a built-in fallback (§1b) | Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and **`JOBS_SECRET`** in Vercel → Settings → Environment Variables. `JOBS_SECRET` is required for the cron route to work. |
 | **`run_order_timers` schedule** | ✅ Done on `solo proud` | Scheduled with pg_cron every 15 min (§4) |
 | **Google sign-in** | Google OAuth is **not enabled** on this Supabase project (the auth settings endpoint returns no external providers) | Supabase → Authentication → Providers → Google: add Client ID/Secret, then add `https://<your-domain>/auth/callback` to *Redirect URLs*. The "Continue with Google" button already calls `signInWithOAuth` and the `/auth/callback` route is implemented — it starts working the moment the provider is switched on. |
 | **Email verification code** | Email signup **is** enabled and sends a 6-digit code | Works out of the box. For testing, Supabase's default mailer is rate-limited (~4/hour) — add your own SMTP under Auth → Email for real volume. |

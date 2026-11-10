@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
 /**
  * POST /api/jobs/run
@@ -34,16 +35,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) {
-    return NextResponse.json(
-      { ok: false, error: "Supabase environment variables are missing." },
-      { status: 500 },
-    );
-  }
-
-  const supabase = createClient(url, key, {
+  // Resolved through the shared config module, which carries a literal
+  // fallback so this route cannot break on a host without the env vars set.
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
