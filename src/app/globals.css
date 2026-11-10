@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --brand: #0b8a3e;
+  --brand-soft: #e9f7ee;
+  --ink: #101418;
+  --muted: #5b6572;
+  --line: #e7ebee;
+  --surface: #ffffff;
+  --canvas: #f7f9f8;
+}
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--canvas);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer base {
+  h1, h2, h3, h4 {
+    letter-spacing: -0.018em;
+    font-weight: 700;
+  }
+}
+
+@layer components {
+  .nm-card {
+    @apply rounded-2xl border border-[var(--line)] bg-white shadow-card;
+  }
+  .nm-label {
+    @apply mb-1.5 block text-[13px] font-semibold text-ink-700;
+  }
+  .nm-input {
+    @apply w-full rounded-xl border border-[var(--line)] bg-white px-3.5 py-2.5 text-[15px] text-ink-900
+           placeholder:text-ink-400 outline-none transition
+           focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10;
+  }
+  .nm-input:disabled {
+    @apply bg-slate-50 text-ink-400;
+  }
+  .nm-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[15px] font-semibold
+           transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .nm-btn-primary {
+    @apply nm-btn bg-brand-500 text-white hover:bg-brand-600;
+  }
+  .nm-btn-ghost {
+    @apply nm-btn border border-[var(--line)] bg-white text-ink-900 hover:bg-slate-50;
+  }
+  .nm-btn-soft {
+    @apply nm-btn bg-brand-50 text-brand-700 hover:bg-brand-100;
+  }
+  .nm-chip {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--line)]
+           bg-white px-3 py-1.5 text-[13px] font-medium text-ink-700;
+  }
+  .nm-chip-active {
+    @apply border-brand-500 bg-brand-50 text-brand-700;
+  }
+  .nm-scroll {
+    scrollbar-width: none;
+  }
+  .nm-scroll::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes nm-shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.nm-skeleton {
+  background: linear-gradient(90deg, #eef2f0 25%, #f7faf8 50%, #eef2f0 75%);
+  background-size: 800px 100%;
+  animation: nm-shimmer 1.4s linear infinite;
+}
+
+@keyframes nm-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.nm-rise { animation: nm-rise 0.35s ease both; }

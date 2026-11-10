@@ -1,0 +1,48 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/supabase/server";
+import { Logo, Badge, Avatar } from "@/components/ui";
+import { SellerNav } from "@/components/seller/seller-nav";
+
+export const dynamic = "force-dynamic";
+
+export default async function SellerLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSession();
+  if (!session) redirect("/signin?next=%2Fseller");
+
+  const shop = session.shop;
+
+  return (
+    <div className="min-h-screen bg-[var(--canvas)]">
+      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5">
+          <Logo />
+          <Badge tone="blue" className="hidden sm:inline-flex">Seller hub</Badge>
+          {shop && (
+            <Link
+              href={`/shop/${shop.slug}`}
+              className="ml-1 hidden text-[12.5px] font-semibold text-brand-600 hover:underline sm:inline"
+            >
+              View public shop ↗
+            </Link>
+          )}
+          <div className="ml-auto flex items-center gap-3">
+            <Link href="/" className="text-[12.5px] font-semibold text-ink-500 hover:text-ink-900">
+              Marketplace
+            </Link>
+            <Link href="/profile" aria-label="Profile">
+              <Avatar name={session.profile.full_name} src={session.profile.avatar_url} size={30} />
+            </Link>
+          </div>
+        </div>
+        {shop && (
+          <div className="mx-auto max-w-6xl px-4">
+            <SellerNav />
+          </div>
+        )}
+      </header>
+
+      <main className="mx-auto max-w-6xl px-4 py-4 pb-16">{children}</main>
+    </div>
+  );
+}

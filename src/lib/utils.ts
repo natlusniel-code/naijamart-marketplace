@@ -1,0 +1,114 @@
+import { clsx, type ClassValue } from "clsx";
+
+export function cn(...inputs: ClassValue[]) {
+  return clsx(inputs);
+}
+
+export const NGN = "₦";
+
+export function naira(amount: number | string | null | undefined, opts?: { compact?: boolean }) {
+  const n = typeof amount === "string" ? Number(amount) : (amount ?? 0);
+  if (!isFinite(n)) return `${NGN}0`;
+  if (opts?.compact && Math.abs(n) >= 1_000_000) {
+    return `${NGN}${(n / 1_000_000).toFixed(1)}m`;
+  }
+  return `${NGN}${n.toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
+}
+
+export function shortDate(d: string | Date | null | undefined) {
+  if (!d) return "—";
+  const date = typeof d === "string" ? new Date(d) : d;
+  return date.toLocaleDateString("en-NG", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+export function relTime(d: string | Date) {
+  const date = typeof d === "string" ? new Date(d) : d;
+  const diff = Date.now() - date.getTime();
+  const mins = Math.round(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return shortDate(date);
+}
+
+export const NIGERIA_STATES = [
+  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+  "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa",
+  "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba",
+  "Yobe", "Zamfara",
+];
+
+export const LGA_BY_STATE: Record<string, string[]> = {
+  Ogun: ["Abeokuta North", "Abeokuta South", "Ado-Odo/Ota", "Ewekoro", "Ifo", "Ijebu Ode", "Sagamu", "Yewa South"],
+  Lagos: ["Ikeja", "Ikorodu", "Lekki", "Surulere", "Alimosho", "Eti-Osa", "Agege", "Oshodi-Isolo"],
+  Oyo: ["Ibadan North", "Ibadan South-West", "Egbeda", "Oyo East", "Ogbomosho North"],
+  FCT: ["Abuja Municipal", "Bwari", "Gwagwalada", "Kuje", "Kwali"],
+  Rivers: ["Port Harcourt", "Obio/Akpor", "Eleme", "Okrika"],
+  Kano: ["Kano Municipal", "Fagge", "Nassarawa", "Tarauni"],
+  Enugu: ["Enugu North", "Enugu East", "Nsukka", "Udi"],
+  Kaduna: ["Kaduna North", "Kaduna South", "Zaria", "Chikun"],
+};
+
+export function lgasFor(state: string | null | undefined) {
+  if (!state) return [];
+  return LGA_BY_STATE[state] ?? [];
+}
+
+/** Order status → label + colour classes (the single source of truth for badges). */
+export const ORDER_STATUS: Record<string, { label: string; tone: "green" | "amber" | "blue" | "gray" | "red" | "violet" }> = {
+  pending_payment: { label: "Pending payment", tone: "amber" },
+  paid: { label: "Payment confirmed", tone: "blue" },
+  accepted: { label: "Accepted", tone: "blue" },
+  processing: { label: "Processing", tone: "blue" },
+  shipped: { label: "Shipped", tone: "violet" },
+  ready_for_pickup: { label: "Ready for pickup", tone: "violet" },
+  delivered: { label: "Delivered", tone: "green" },
+  completed: { label: "Completed", tone: "green" },
+  cancelled: { label: "Cancelled", tone: "gray" },
+  disputed: { label: "Disputed", tone: "red" },
+};
+
+export const ORDER_STEPS = [
+  "Order placed",
+  "Payment confirmed",
+  "Seller preparing",
+  "Shipped",
+  "Delivered",
+  "Completed",
+] as const;
+
+export function stepIndexFor(status: string, fulfilment = "delivery") {
+  switch (status) {
+    case "pending_payment": return 0;
+    case "paid": return 1;
+    case "accepted":
+    case "processing": return 2;
+    case "shipped":
+    case "ready_for_pickup": return 3;
+    case "delivered": return 4;
+    case "completed": return 5;
+    default: return 0;
+  }
+}
+
+export function initials(name: string | null | undefined) {
+  if (!name) return "NM";
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join("");
+}
+
+export function slugify(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
+}
