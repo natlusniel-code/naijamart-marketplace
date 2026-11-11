@@ -50,7 +50,7 @@ export default async function SellerChatsPage() {
             const p = pmap.get(c.buyer_id);
             const last = lastByChat.get(c.id);
             return (
-              <Link key={c.id} href={`/chats/${c.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/70">
+              <Link key={c.id} href={`/seller/chats/${c.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/70">
                 <Avatar name={p?.full_name ?? "Buyer"} src={p?.avatar_url} size={40} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">

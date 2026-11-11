@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
+import type { Metadata } from "next";
 import { getSession, createClient } from "@/lib/supabase/server";
 import { getShopBySlug, getShopListings, getShopReviews, getWishlistIds } from "@/lib/queries";
 import { naira, shortDate } from "@/lib/utils";
@@ -10,6 +12,75 @@ import { FollowButton } from "@/components/follow-button";
 import { ShopSignInPrompt } from "@/components/shop-signin-prompt";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Link preview for a shared shop.
+ *
+ * When a seller pastes their shop link into WhatsApp, Instagram, X or
+ * Telegram, the unfurler reads these tags. Without them every shop shared the
+ * same generic NaijaMart card, so a buyer had no idea who they were about to
+ * open. Now the card carries the shop's own banner as the image and its bio as
+ * the description.
+ *
+ * Order of preference for the image: banner → logo → the site icon. A shop
+ * that has only uploaded a logo still gets a recognisable card instead of a
+ * blank one.
+ *
+ * `absolute` URLs are required: Open Graph consumers do not resolve relative
+ * paths, and Supabase storage URLs are already absolute, so they pass through
+ * untouched.
+ */
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const shop = await getShopBySlug(params.slug);
+  if (!shop) return { title: "Shop not found" };
+
+  const image: string | undefined = shop.banner_url || shop.logo_url || undefined;
+
+  // The bio is the seller's own words. Trim it to a length that unfurlers show
+  // in full rather than truncating mid-sentence with an ellipsis.
+  const rawBio: string = (shop.description ?? "").replace(/\s+/g, " ").trim();
+  const bio =
+    rawBio.length > 0
+      ? rawBio.length > 160
+        ? `${rawBio.slice(0, 157).trimEnd()}…`
+        : rawBio
+      : `${shop.name} on NaijaMart — ${shop.kind === "services" ? "services" : "goods"} from ${shop.city}, ${shop.state}. Pay through escrow.`;
+
+  const title = `${shop.name}${shop.verified ? " ✓" : ""} · NaijaMart`;
+  const url = `/shop/${shop.slug}`;
+
+  // Open Graph consumers require an ABSOLUTE url. Next only absolutises it when
+  // `metadataBase` is set, and this app has no single canonical host (Vercel
+  // preview, custom domain, localhost), so it is resolved from the request
+  // headers here. Falls back to the production domain.
+  const h = headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
+  const origin = host ? `${proto}://${host}` : "https://naijamart-marketplace-opal.vercel.app";
+  const absoluteUrl = `${origin}${url}`;
+
+  return {
+    title: shop.name,
+    description: bio,
+    alternates: { canonical: absoluteUrl },
+    openGraph: {
+      type: "profile",
+      title,
+      description: bio,
+      url: absoluteUrl,
+      siteName: "NaijaMart",
+      images: image ? [{ url: image, alt: `${shop.name} banner` }] : undefined,
+    },
+    twitter: {
+      // `summary_large_image` is what makes the banner render wide instead of
+      // as a small square thumbnail beside the text.
+      card: image ? "summary_large_image" : "summary",
+      title,
+      description: bio,
+      images: image ? [image] : undefined,
+    },
+  };
+}
 
 export default async function ShopPage({ params }: { params: { slug: string } }) {
   const session = await getSession();
@@ -65,18 +136,28 @@ export default async function ShopPage({ params }: { params: { slug: string } })
         )}
       </div>
 
-      {/* identity */}
-      <div className="-mt-9 px-4 md:-mt-10 md:px-4">
-        <div className="flex items-end gap-3">
+      {/* identity ────────────────────────────────────────────────────────────
+          The banner sits ABOVE this block and the logo/name sit BELOW it, on
+          their own white surface. The old version pulled this block up with a
+          negative margin so the logo overlapped the banner — but the business
+          name and the rating/location line came with it, landing on top of the
+          banner image. On a dark banner that made the name unreadable, and on
+          a light one it looked like a rendering bug.
+
+          Now nothing overlaps: banner, then a clean card. The logo keeps a
+          white ring so it still reads as a distinct mark rather than a floating
+          square. */}
+      <div className="px-4 pt-3 md:px-4">
+        <div className="flex items-start gap-3">
           {shop.logo_url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={shop.logo_url} alt={shop.name} className="h-20 w-20 rounded-2xl border-4 border-white object-cover shadow-card" />
+            <img src={shop.logo_url} alt={shop.name} className="h-20 w-20 shrink-0 rounded-2xl border-4 border-white bg-white object-cover shadow-card" />
           ) : (
-            <span className="grid h-20 w-20 place-items-center rounded-2xl border-4 border-white bg-brand-500 text-[24px] font-extrabold text-white shadow-card">
+            <span className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border-4 border-white bg-brand-500 text-[24px] font-extrabold text-white shadow-card">
               {shop.name.slice(0, 2).toUpperCase()}
             </span>
           )}
-          <div className="flex-1 pb-1">
+          <div className="min-w-0 flex-1 pt-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <h1 className="text-[19px] font-extrabold tracking-tight text-ink-900">{shop.name}</h1>
               {shop.verified && <VerifiedBadge />}

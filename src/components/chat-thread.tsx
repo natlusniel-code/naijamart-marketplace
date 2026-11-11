@@ -69,6 +69,7 @@ export function ChatThread({
   order,
   initialMessages,
   initialOffers,
+  basePath = "/chats",
 }: {
   chatId: string;
   meId: string;
@@ -80,6 +81,13 @@ export function ChatThread({
   order: { id: string; reference: string; status: string; total: number; fulfilment: string } | null;
   initialMessages: Msg[];
   initialOffers: Offer[];
+  /**
+   * Where this thread lives: `/chats` in the storefront, `/seller/chats` in the
+   * Seller Hub. The back link and the post-accept redirect use it, so a seller
+   * is never sent into the storefront — which now redirects them straight back
+   * to the hub.
+   */
+  basePath?: string;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
@@ -342,21 +350,26 @@ export function ChatThread({
     }
     const row = Array.isArray(data) ? data[0] : data;
     setOffers((prev) => prev.map((o) => (o.id === id ? { ...o, status: "accepted" } : o)));
-    router.push(`/orders/${row.id}`);
+    // A seller accepting an offer stays in the hub; a buyer goes to the
+    // storefront order page.
+    router.push(amSeller ? `/seller/orders` : `/orders/${row.id}`);
   }
 
   return (
     <div className="mx-auto flex h-[calc(100vh-8.5rem)] max-w-2xl flex-col md:h-[calc(100vh-7.5rem)]">
       {/* header */}
       <div className="flex items-center gap-2.5 border-b border-[var(--line)] pb-2.5">
-        <Link href="/chats" className="rounded-lg p-1 text-ink-400 hover:text-ink-900" aria-label="Back">←</Link>
+        <Link href={basePath} className="rounded-lg p-1 text-ink-400 hover:text-ink-900" aria-label="Back">←</Link>
         <Avatar name={amSeller ? otherName : (shopName ?? otherName)} src={amSeller ? otherAvatar : shopLogo} size={34} />
         <div className="min-w-0">
           <p className="truncate text-[13.5px] font-bold text-ink-900">{amSeller ? otherName : (shopName ?? otherName)}</p>
           <p className="text-[11px] text-ink-400">{amSeller ? "Buyer" : "Seller"}</p>
         </div>
         {order && (
-          <Link href={`/orders/${order.id}`} className="ml-auto text-[11.5px] font-semibold text-brand-600">
+          <Link
+            href={amSeller ? "/seller/orders" : `/orders/${order.id}`}
+            className="ml-auto text-[11.5px] font-semibold text-brand-600"
+          >
             View order →
           </Link>
         )}
@@ -364,7 +377,10 @@ export function ChatThread({
 
       {/* pinned order context */}
       {order && (
-        <Link href={`/orders/${order.id}`} className="mt-2 block rounded-xl border border-brand-500/20 bg-brand-50/70 px-3 py-2">
+        <Link
+          href={amSeller ? "/seller/orders" : `/orders/${order.id}`}
+          className="mt-2 block rounded-xl border border-brand-500/20 bg-brand-50/70 px-3 py-2"
+        >
           <div className="flex items-center justify-between gap-2">
             <p className="font-mono text-[11px] font-semibold text-brand-900">{order.reference}</p>
             <OrderStatusChip status={order.status} />

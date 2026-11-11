@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/supabase/server";
+import { getSession, createClient } from "@/lib/supabase/server";
 import { sellerGatePath } from "@/lib/seller-gate";
 import { isBuyerAccount } from "@/lib/roles";
 import { Logo, Badge, Avatar } from "@/components/ui";
 import { SellerNav } from "@/components/seller/seller-nav";
+import { NotificationBell } from "@/components/notification-bell";
 import { InstallAppPrompt } from "@/components/install-app-prompt";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +40,16 @@ export default async function SellerLayout({ children }: { children: React.React
 
   const shop = session.shop;
 
+  // Unread counts for the hub header. Messages and notifications are separate
+  // numbers: the bell shows notifications, the Chats tab shows messages.
+  const supabase = createClient();
+  const [{ data: msgCount }, { data: notifCount }] = await Promise.all([
+    supabase.rpc("unread_message_count"),
+    supabase.rpc("unread_notification_count"),
+  ]);
+  const unreadMessages = typeof msgCount === "number" ? msgCount : 0;
+  const unreadNotifications = typeof notifCount === "number" ? notifCount : 0;
+
   return (
     <div className="min-h-screen bg-[var(--canvas)]">
       <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white/95 backdrop-blur">
@@ -54,9 +65,18 @@ export default async function SellerLayout({ children }: { children: React.React
             </Link>
           )}
           <div className="ml-auto flex items-center gap-3">
-            <Link href="/" className="text-[12.5px] font-semibold text-ink-500 hover:text-ink-900">
-              Marketplace
-            </Link>
+            {/* Sellers are redirected out of the storefront, so a "Marketplace"
+                link to `/` would bounce them straight back here. Their own
+                public shop is the useful destination instead. */}
+            {shop && (
+              <Link
+                href={`/shop/${shop.slug}`}
+                className="text-[12.5px] font-semibold text-ink-500 hover:text-ink-900"
+              >
+                My shop
+              </Link>
+            )}
+            <NotificationBell unread={unreadNotifications} allHref="/seller/notifications" />
             <Link href="/profile" aria-label="Profile">
               <Avatar name={session.profile.full_name} src={session.profile.avatar_url} size={30} />
             </Link>
@@ -64,7 +84,7 @@ export default async function SellerLayout({ children }: { children: React.React
         </div>
         {shop && (
           <div className="mx-auto max-w-6xl px-4">
-            <SellerNav />
+            <SellerNav unreadMessages={unreadMessages} />
           </div>
         )}
       </header>

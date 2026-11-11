@@ -34,7 +34,18 @@ type Row = {
  * OS notification, so an order update reaches the phone's tray and not just
  * this dropdown.
  */
-export function NotificationBell({ unread: initialUnread }: { unread: number }) {
+export function NotificationBell({
+  unread: initialUnread,
+  allHref = "/notifications",
+}: {
+  unread: number;
+  /**
+   * Where "See all" goes. The storefront bell points at `/notifications`; the
+   * Seller Hub bell points at `/seller/notifications`, because a seller is
+   * redirected out of the storefront.
+   */
+  allHref?: string;
+}) {
   const router = useRouter();
   const path = usePathname() || "/";
   const [unread, setUnread] = useState(initialUnread);
@@ -42,7 +53,7 @@ export function NotificationBell({ unread: initialUnread }: { unread: number }) 
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
-  const onNotificationsPage = path.startsWith("/notifications");
+  const onNotificationsPage = path.startsWith(allHref);
 
   useEffect(() => {
     setUnread(initialUnread);
@@ -159,7 +170,7 @@ export function NotificationBell({ unread: initialUnread }: { unread: number }) 
         <div className="absolute right-0 top-10 z-50 w-[320px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-lift">
           <div className="flex items-center justify-between border-b border-[var(--line)] px-3.5 py-2.5">
             <p className="text-[13.5px] font-bold text-ink-900">Notifications</p>
-            <Link href="/notifications" onClick={() => setOpen(false)} className="text-[12px] font-semibold text-brand-600">
+            <Link href={allHref} onClick={() => setOpen(false)} className="text-[12px] font-semibold text-brand-600">
               See all →
             </Link>
           </div>

@@ -20,7 +20,17 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
  *     refresh must degrade to "anonymous visitor", never to a dead site.
  */
 export async function updateSession(request: NextRequest) {
-  let response = NextResponse.next({ request: { headers: request.headers } });
+  // ── Expose the pathname to Server Components ──────────────────────────────
+  // A layout cannot read the current URL, but the seller/storefront split
+  // needs to know which page is being rendered: a seller is allowed on their
+  // own public shop page and on an order detail, and redirected everywhere
+  // else. Setting one request header here is cheaper than a DB lookup in
+  // middleware and keeps the decision in the layout that already has the
+  // session.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", request.nextUrl.pathname);
+
+  let response = NextResponse.next({ request: { headers: requestHeaders } });
 
   try {
     const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -30,7 +40,7 @@ export async function updateSession(request: NextRequest) {
         },
         setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request: { headers: request.headers } });
+          response = NextResponse.next({ request: { headers: requestHeaders } });
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options),
           );
