@@ -87,12 +87,18 @@ export function SignupDetails({ initialRole }: Props) {
       } else if (msg.includes("password")) {
         setErrors({ password: "That password is too weak. Try a longer one." });
       } else if (msg.includes("confirmation email") || msg.includes("sending email")) {
-        // The account row may or may not have been created, but the mailer is
-        // down. This is a server-side misconfiguration, not something the user
-        // can fix by retyping — say so plainly instead of showing a raw 500.
+        // The mailer rejected the send. The account row may or may not exist,
+        // so we must not pretend it succeeded — but this is a server-side
+        // problem, not something the user can fix by retyping. Say so plainly
+        // instead of surfacing a raw 500.
         setErrors({
           form:
-            "We couldn't send your confirmation email. This is a problem on our side, not yours — please contact support and we'll finish setting up your account.",
+            "We couldn't send your confirmation email just now. This is on our side, not yours — please try again in a minute, or contact support and we'll finish setting up your account.",
+        });
+      } else if (msg.includes("rate limit") || msg.includes("too many")) {
+        setErrors({
+          form:
+            "Too many sign-up emails have gone out in the last hour. Please wait a little and try again.",
         });
       } else {
         setErrors({ form: error.message });
@@ -107,13 +113,21 @@ export function SignupDetails({ initialRole }: Props) {
       return;
     }
 
-    // ── Auto-confirm is ON ────────────────────────────────────────────────────
-    // When the project has `mailer_autoconfirm` enabled, signUp returns a live
-    // session and the user is already signed in. Sending them to the "check
-    // your email" screen would be a dead end: there is no email coming, and the
-    // resend button would fail. Go straight into the app instead.
+    // ── Two legitimate outcomes ───────────────────────────────────────────────
+    //
+    // 1. A session came back. That happens when the project has
+    //    `mailer_autoconfirm` on, or when the address is already confirmed.
+    //    The user is signed in, so send them where their role belongs.
+    //
+    // 2. No session. Email confirmation is required, so the account exists but
+    //    is unconfirmed and a confirmation link is on its way. This is the
+    //    normal path — show the "check your email" screen. It is NOT a dead
+    //    end: the resend button works because the mailer is healthy.
+    //
+    // The role is passed through so a seller with no shop row yet still lands
+    // in onboarding rather than on the storefront.
     if (data.session) {
-      const dest = await postAuthDestination(supabase, data.user!.id, null);
+      const dest = await postAuthDestination(supabase, data.user!.id, null, role);
       router.push(dest);
       router.refresh();
       return;

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { postAuthDestination } from "@/lib/post-auth";
 import { cn } from "@/lib/utils";
 import { Spinner, Alert } from "@/components/ui";
 import { GoogleButton } from "@/components/google-button";
@@ -65,26 +66,14 @@ export function SignInForm() {
       }
       return;
     }
-    // Sellers land in the Seller Hub, buyers on the storefront. The check is
-    // a real query against `shops` (RLS lets an owner read their own row), not
-    // a role claim — so a seller whose metadata was never written still routes
-    // correctly. An explicit `?next=` always wins.
+    // Sellers land in the Seller Hub (or in onboarding if they have not opened
+    // a shop yet), buyers on the storefront. `postAuthDestination` asks the
+    // database — the `shops` row first, then the profile role — so a seller who
+    // has not started onboarding is not mistaken for a buyer. An explicit
+    // `?next=` always wins.
     const explicitNext = params.get("next");
-    let dest = explicitNext && explicitNext.startsWith("/") && !explicitNext.startsWith("//") ? explicitNext : null;
-
-    if (!dest) {
-      const { data: auth } = await supabase.auth.getUser();
-      if (auth?.user) {
-        const { data: shop } = await supabase
-          .from("shops")
-          .select("id,status")
-          .eq("owner_id", auth.user.id)
-          .maybeSingle();
-        dest = shop ? (shop.status === "draft" ? "/seller/onboarding" : "/seller") : "/";
-      } else {
-        dest = "/";
-      }
-    }
+    const uid = (await supabase.auth.getUser()).data.user?.id ?? "";
+    const dest = await postAuthDestination(supabase, uid, explicitNext);
 
     router.push(dest);
     router.refresh();
