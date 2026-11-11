@@ -1,26 +1,31 @@
-# NaijaMart — discounts, wishlist, notifications
 
-Four updates, applied on top of the previous round's commit.
+---
+
+# NaijaMart — one account, one role
+
+Fixes the reported bug: **a buyer who had become a seller was still being sent
+to the storefront on sign-in**, and the account `sultananifowose@gmail.com`
+existed as a buyer while owning an approved shop.
 
 | # | Update | Where |
 |---|---|---|
-| 1 | Seller discount + original price, auto percentage | `sql/0013`, `listing-form.tsx`, `cards.tsx`, listing page, cart |
-| 2 | Wishlist page | `sql/0013`, `wishlist-button.tsx`, `/wishlist` |
-| 3 | Notifications page + header bell + browser notifications | `sql/0013`, `notification-bell.tsx`, `/notifications`, `public/sw.js` |
-| 4 | Admin general notifications | `sendBroadcast` action, `/admin-fuckliving/notifications` |
+| 1 | Opening a shop promotes its owner to `seller`, atomically | `sql/0014`, `onboarding-flow.tsx` |
+| 2 | A shop owner can never be stored as a buyer | `sql/0014` (`tg_profiles_guard`) |
+| 3 | Existing contradictory rows repaired | `sql/0014` (backfill) |
+| 4 | One shared "who is a seller?" rule used by every entry point | `src/lib/roles.ts`, `post-auth.ts`, `auth/callback`, seller hub layout |
 
 ---
 
 ## Apply it
 
-Pull the branch, then run the migration **in order, after the existing ones**:
+Run the migration **after the existing ones**:
 
 ```bash
 # in the Supabase SQL editor, or: supabase db push
-sql/0013_discounts_wishlist_notifications.sql
+sql/0014_one_account_one_role.sql
 ```
 
-`0013` is idempotent — running it twice is safe (verified).
+`0014` is idempotent — running it twice is safe.
 
 Then:
 
@@ -31,187 +36,90 @@ npm run build
 
 ---
 
-## What each update does
+## What was actually wrong
 
-### 1. Discounts
+There is **no separate buyer database and seller database**. `public.profiles`
+is the single account table and `role` is the discriminator
+(`'buyer' | 'seller' | 'admin'`). A buyer and a seller are the same row with a
+different `role` value — so "move the account from the buyer side to the seller
+side" means exactly one thing: flip `role` on that one row. One record, one
+role, no second entry anywhere.
 
-The seller enters the price they **used to** charge. The percentage is never
-typed — it is a **generated column** in Postgres:
+The onboarding flow never did that flip. `onboarding-flow.tsx` inserted the
+`shops` row in step 1 and stopped there — nothing ever wrote
+`profiles.role = 'seller'`. That left a row which was a buyer by `role` while
+owning an approved shop with live listings:
+
+```
+profiles.role = 'buyer'   +   shops.owner_id = that user
+```
+
+Every routing decision that trusted `role` sent the account to the storefront
+(right for a buyer, wrong for this account), and every decision that trusted
+shop ownership sent it into the Seller Hub and its seller-only settings page
+(right for a seller, wrong for a buyer). The two signals disagreed because the
+write was missing.
+
+## What the fix does
+
+**1. The transition is atomic and cannot be skipped.** A trigger on `shops`
+(`t_shops_promote_owner`, `AFTER INSERT OR UPDATE OF owner_id`) promotes the
+owner in the same transaction as the shop write. There is no window where the
+shop exists and the role does not.
+
+**2. The contradiction cannot be re-created.** `tg_profiles_guard` now refuses
+to store a profile that owns a shop as a `buyer` — whoever is writing. Every
+existing rule is kept: the service-role bypass, buyer ↔ seller self-service,
+and admin/ban fields staying locked.
+
+**3. Existing rows are repaired.** The backfill promotes every profile that
+owns a shop but was still stored as a buyer. It only ever moves
+buyer → seller, never touches admins, and is idempotent.
+
+**4. The app has one shared rule.** `src/lib/roles.ts` exports
+`isSellerAccount` / `isBuyerAccount`: a seller is an account with
+`role = 'seller'` (or an admin) **or** one that owns a shop. `postAuthDestination`,
+`/auth/callback` and the seller hub layout all use it, so a stale role read can
+never strand a real seller on the storefront, and a genuine buyer — who owns no
+shop by definition — is always kept out of the Seller Hub.
+
+**5. The RPC is safe to expose.** `promote_shop_owner_to_seller(uuid)` is
+`SECURITY DEFINER` and therefore reachable through PostgREST, so it carries two
+guards: a caller may only promote **themselves** (the service role and admins
+may promote anyone), and the target must actually **own a shop**. The trigger
+calls a separate internal function, because it fires with the seller's own
+identity and must not apply the "only yourself" rule.
+
+## What is deliberately NOT deleted
+
+Buyer-side history is kept: `addresses`, `wishlists`, and orders where this
+user is the `buyer_id`. Those are past transactions, not a duplicate account —
+deleting them would destroy order history and break the seller's own receipts.
+"No leftover buyer entry" is satisfied by there being exactly one `profiles`
+row with `role = 'seller'`; there is no second row to remove.
+
+## Verify it worked
 
 ```sql
-discount_percent = round(((original_price - price) / original_price) * 100, 2)
+-- Expect zero rows: no shop owner is stored as a buyer.
+select p.id, p.email, p.role
+  from public.profiles p
+ where p.role = 'buyer'
+   and exists (select 1 from public.shops s where s.owner_id = p.id);
+
+-- Expect one row per account: one record, one role.
+select id, count(*) from public.profiles group by id having count(*) > 1;
 ```
 
-so the badge on the storefront can never disagree with the two prices it is
-derived from. A `check` constraint rejects `original_price < price`, because a
-"discount" that raises the price is not a discount.
+Verified on the live project (`ecejkevdfpzfvwfjjqwc`):
 
-The same maths exists in `discountPercent()` in `src/lib/utils.ts` for the two
-places that cannot read the column: the seller's form (which must show the
-percentage before the row exists) and the cart (which holds a price snapshot).
-`scripts/check-discounts.mjs` pins both implementations to the same 29 cases so
-they cannot drift apart.
-
-Buyers see the badge and the struck-through original price on cards, the
-listing page, the cart, and the seller's own listing list.
-
-### 2. Wishlist
-
-`wishlists` is one row per `(user_id, listing_id)` — the primary key makes a
-double-tap harmless. RLS restricts every operation to the owner.
-
-The heart appears on every card and on the listing page. The write is
-optimistic: the heart fills immediately and rolls back only on a real error
-(a `23505` unique violation means the row already exists, which is the state
-the user wanted anyway).
-
-The wishlist page keeps **unavailable** items visible, greyed out, rather than
-filtering them out. A buyer who saved something should see that it is gone
-instead of wondering where it went.
-
-### 3. Notifications
-
-**Order updates are generated by a database trigger**, not by application code.
-Every status change already goes through a `SECURITY DEFINER` RPC, but a future
-code path — a cron job, a manual SQL fix — would bypass an application-level
-call. Hooking the table means the buyer is told no matter who moved the order.
-
-The trigger only fires on a **real** status change (`new.status is not distinct
-from old.status` returns early), so uploading a receipt or editing a note does
-not spam the buyer. Verified by test.
-
-A second trigger notifies the **seller** on a new order. Not asked for, but a
-seller who is never told an order arrived is why orders sit unaccepted until
-the 24-hour clock cancels them.
-
-**The bell** in the header shows an unread count, seeded from the server so it
-is correct on first paint, then kept live by a Realtime subscription filtered
-to `user_id`. Opening the dropdown marks what it shows as read and the badge
-drops immediately.
-
-**Browser notifications** — `public/sw.js` plus `src/lib/browser-notify.ts`.
-Two paths:
-
-- `message` — the page hands the text to the service worker, which raises a
-  real OS notification. Works with the tab in the background, needs no server.
-- `push` — a Web Push message. This is the only path that works with the
-  browser fully closed.
-
-> **Background push needs one more step.** It requires a VAPID key pair and a
-> sender. The client side is complete and stores subscriptions in
-> `push_subscriptions`, but without `NEXT_PUBLIC_VAPID_PUBLIC_KEY` the opt-in
-> says so plainly instead of pretending it worked. To finish it:
->
-> ```bash
-> npx web-push generate-vapid-keys
-> ```
->
-> Put the public key in `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and the private key in a
-> server-only `VAPID_PRIVATE_KEY`, then send to the rows in
-> `push_subscriptions` when a notification is inserted. Until then,
-> notifications work in the browser and on the phone's tray **while the browser
-> is running** — which is what the UI says.
-
-### 4. Admin general notifications
-
-`/admin-fuckliving/notifications` — compose, choose buyers / sellers /
-everyone, review, send.
-
-Stored as **one row per recipient**, not a shared row with a read flag: "read"
-is per person, and a shared row cannot express "buyer A has seen this and buyer
-B has not". The fan-out is batched at 500 rows per insert, and a failure
-halfway reports how many actually went out rather than claiming success.
-
-Sellers are identified by **owning a shop**, not by `profiles.role` — a user can
-be a buyer who later opened a shop, and their role column may still say
-`buyer`. Ownership is the fact that matters.
-
----
-
-## How this was checked
-
-| Check | Result |
-|---|---|
-| `npx tsc --noEmit` | clean |
-| `npm run build` | clean, all new routes present |
-| `node scripts/check-discounts.mjs` | **29/29** — JS and SQL agree on every case |
-| `scripts/sql-tests.sql` against real Postgres 15 | **16/16** |
-| `0013` applied twice | no errors (idempotent) |
-
-The SQL tests run the real migration against a real Postgres, not a mock. They
-cover: the generated column and its recomputation on update, the
-`original_price >= price` constraint, wishlist uniqueness and cascade, buyer +
-seller notification on order insert, one notification per status change, **no**
-notification on a non-status update, **no** notification when the same status is
-re-set, the order link, per-user unread counts, mark-all-read not crossing
-users, and push-subscription uniqueness.
-
-To re-run them:
-
-```bash
-# needs a local postgres; see scripts/sql-harness.sql for the stubs
-psql -d nmtest -f scripts/sql-harness.sql
-psql -d nmtest -f sql/0013_discounts_wishlist_notifications.sql
-psql -d nmtest -f scripts/sql-tests.sql
-```
-
----
-
-## What I could not check
-
-- **The migration has not been run against your Supabase project.** It was run
-  against a local Postgres 15 with Supabase's roles and `auth.uid()` stubbed.
-  That proves the SQL is valid and behaves correctly; it does not prove your
-  project's existing data satisfies the new constraint. If any existing listing
-  already has `original_price < price` the `alter table` will fail — check with:
-  ```sql
-  select id, title, price, original_price from listings
-   where original_price is not null and original_price < price;
-  ```
-  (The column is new, so this should return nothing.)
-- **Background push is not live** — see the VAPID note above.
-- **I did not click through the UI in a browser.** The new pages are verified by
-  typecheck and build, not by interaction. The bell's Realtime subscription in
-  particular depends on `notifications` being in the `supabase_realtime`
-  publication, which `0013` adds — but that only takes effect on a real
-  Supabase project.
-- **No push sender exists**, so nothing currently writes to
-  `push_subscriptions` except the client opt-in.
-
----
-
-## Files
-
-```
-sql/0013_discounts_wishlist_notifications.sql   new
-src/lib/utils.ts                                discountPercent / discountLabel
-src/lib/queries.ts                              discount fields, wishlist, notifications
-src/lib/browser-notify.ts                       new — permission, SW, push
-src/lib/cart.ts                                 originalPrice on cart lines
-public/sw.js                                    new — service worker
-src/components/wishlist-button.tsx              new
-src/components/notification-bell.tsx            new
-src/components/push-opt-in.tsx                  new
-src/components/mark-all-read.tsx                new
-src/components/admin/broadcast-form.tsx         new
-src/components/cards.tsx                        badge, struck price, heart
-src/components/seller/listing-form.tsx          original price + live %
-src/components/cart-view.tsx                    struck price
-src/components/add-to-cart-bar.tsx              carries originalPrice
-src/components/tab-bar.tsx                      Saved tab
-src/app/(shop)/wishlist/page.tsx                new
-src/app/(shop)/notifications/page.tsx           new
-src/app/(shop)/layout.tsx                       bell
-src/app/(shop)/page.tsx                         wishlist state
-src/app/(shop)/search/page.tsx                  wishlist state
-src/app/(shop)/shop/[slug]/page.tsx             wishlist state
-src/app/(shop)/listing/[id]/page.tsx            badge, save button
-src/app/(shop)/profile/page.tsx                 wishlist + notifications links
-src/app/seller/(hub)/listings/page.tsx          discount in seller list
-src/app/admin-fuckliving/actions.ts             sendBroadcast
-src/app/admin-fuckliving/(console)/notifications/page.tsx   new
-src/components/admin/admin-nav.tsx              nav entry
-scripts/check-discounts.mjs                     new — 29 checks
-scripts/sql-harness.sql                         new — test harness
-scripts/sql-tests.sql                           new — 16 checks
-```
+- `sultananifowose@gmail.com` is now `seller` (it owns *Anifowose Furniture*,
+  approved, with 2 listings and 1 seller order — and 0 buyer activity).
+- Creating a shop as an ordinary signed-in user promotes the owner in the same
+  transaction.
+- A demotion attempt by the shop owner is silently corrected back to `seller`.
+- A buyer with no shop cannot promote themselves, and cannot promote anyone
+  else (`42501 not allowed`).
+- End-to-end in a real browser: the buyer test account signs in and lands on
+  `/`; opening `/seller/settings` bounces to `/`; a seller test account signs in
+  and lands on `/seller`, and `/seller/settings` renders normally.
