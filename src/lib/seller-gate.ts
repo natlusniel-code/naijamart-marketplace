@@ -33,15 +33,25 @@
 
 export type SellerShop = {
   status?: string | null;
+  verified?: boolean | null;
   subscription_status?: string | null;
   bank_account_number?: string | null;
 } | null;
 
 export type OnboardingStep = 1 | 2 | 3 | 4;
 
-/** True only when an admin has approved the shop. */
+/**
+ * True only when an admin has approved the shop AND verified it.
+ *
+ * ── Why both flags ─────────────────────────────────────────────────────────
+ * `status` is the approval decision and `verified` is the identity check. They
+ * are separate columns and the admin console can set one without the other, so
+ * checking `status` alone let a shop that was approved but never identity-
+ * verified into the hub — the exact "pending seller in the hub" case. A seller
+ * is live only when both are true.
+ */
 export function isApprovedSeller(shop: SellerShop): boolean {
-  return shop?.status === "approved";
+  return shop?.status === "approved" && shop?.verified === true;
 }
 
 /**
@@ -56,6 +66,11 @@ export function onboardingStepFor(shop: SellerShop): OnboardingStep {
   // human. Step 4 is the "under review" screen.
   if (shop.subscription_status === "pending") return 4;
   if (shop.status === "rejected" || shop.status === "suspended") return 4;
+
+  // Approved but not identity-verified: still waiting on a human. Without this
+  // the seller fell through to step 3 (plan) and was asked to pay again for a
+  // shop that had already been approved.
+  if (shop.status === "approved" && shop.verified !== true) return 4;
 
   // Business profile exists but the verification details are missing.
   if (!shop.bank_account_number) return 2;

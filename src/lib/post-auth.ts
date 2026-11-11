@@ -59,7 +59,7 @@ export async function postAuthDestination(
 
   const { data: shop } = await supabase
     .from("shops")
-    .select("id,status,subscription_status,bank_account_number")
+    .select("id,status,verified,subscription_status,bank_account_number")
     .eq("owner_id", userId)
     .maybeSingle();
 
@@ -77,6 +77,12 @@ export async function postAuthDestination(
   // No shop yet. If this account is a seller, they are at step 0 of the
   // business-details → plan payment → pending-approval flow, so send them
   // there instead of the storefront.
+  //
+  // This is the Google-signup path: a seller who authenticated with Google has
+  // `role = 'seller'` (written by /auth/callback) but no `shops` row, because
+  // the row is only created when they submit the business-details form. They
+  // must land on step 1 — business details — and the plan page follows from
+  // there once the shop exists.
   if (effectiveRole === "seller") return "/seller/onboarding?step=1";
 
   return "/";

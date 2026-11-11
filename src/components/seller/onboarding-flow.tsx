@@ -123,7 +123,24 @@ export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionP
 
   async function saveStep2() {
     if (!verif.nin_or_cac.trim()) { setErr("Enter your NIN or CAC number."); return; }
-    if (!verif.bank_account_number.trim()) { setErr("Enter the account you want to be paid into."); return; }
+    if (!verif.bank_account_name.trim()) { setErr("Enter the name on your bank account."); return; }
+    if (!/^\d{10}$/.test(verif.bank_account_number.trim())) {
+      setErr("Enter your 10-digit account number.");
+      return;
+    }
+    // ── Documents are compulsory ────────────────────────────────────────────
+    // Verification is the whole point of this step: an admin cannot approve a
+    // seller they cannot identify. This used to be optional, so a shop could
+    // reach the approval queue with no ID on file and the reviewer had nothing
+    // to check. The database now refuses to approve such a shop
+    // (sql/0016, `shops_require_documents`), and this is the matching check in
+    // the form so the seller is told here rather than by a failed approval.
+    if (verif.documents.length === 0) {
+      setErr(
+        "Upload at least one ID document — your NIN slip, national ID, driver's licence or voter's card.",
+      );
+      return;
+    }
     setBusy(true); setErr("");
     const supabase = createClient();
     const { error } = await supabase.from("shops").update({
@@ -296,11 +313,23 @@ export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionP
               </div>
             </div>
             <div>
-              <label className="nm-label">Supporting document</label>
+              <label className="nm-label">
+                ID document <span className="text-red-600">*</span>
+              </label>
+              <p className="mb-1.5 text-[11.5px] leading-relaxed text-ink-500">
+                Required. Upload one of: NIN slip, national ID card, driver&apos;s licence or
+                voter&apos;s card. A CAC certificate is also accepted for a registered business.
+              </p>
               <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-[var(--line)] px-3 py-2.5 text-[12.5px] text-ink-500 hover:border-brand-400 hover:bg-brand-50/40">
                 <span className="text-brand-600">📎</span>
-                {uploading === "doc" ? "Uploading…" : "Upload ID, CAC certificate or utility bill"}
-                <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && uploadDoc(e.target.files[0])} />
+                {uploading === "doc" ? "Uploading…" : "Upload NIN, ID, driver's licence or voter's card"}
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  required
+                  className="hidden"
+                  onChange={(e) => e.target.files?.[0] && uploadDoc(e.target.files[0])}
+                />
               </label>
               {verif.documents.length > 0 && (
                 <ul className="mt-1.5 space-y-1">

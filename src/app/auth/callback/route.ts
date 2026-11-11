@@ -50,16 +50,37 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/signin?error=expired`);
   }
 
+  // ── Password recovery takes precedence over every role rule ──────────────
+  // A recovery link is not a sign-in: the user asked to change their password,
+  // and the session it creates exists only to authorise that change. Routing
+  // them by role here would drop a seller into the hub (or a buyer onto the
+  // storefront) with the reset form never shown, and the link would be spent.
+  //
+  // `next` is `/reset?mode=update` (set by resetPasswordForEmail), so this
+  // check must run BEFORE the buyer/seller branching below.
+  if (next.startsWith("/reset")) {
+    return NextResponse.redirect(`${origin}${next}`);
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   // OAuth first login: Supabase fills the profile trigger from user_metadata,
   // but the role choice lives in our query string — apply it here.
+  //
+  // ── Why this upserts instead of only updating ─────────────────────────────
+  // The old code did `if (Object.keys(patch).length && prof)`, so when the
+  // `handle_new_user` trigger had not committed yet (a real race on a first
+  // OAuth login) `prof` was null and the role was silently dropped. A seller
+  // who signed up with Google then had no `role = 'seller'`, was classified as
+  // a buyer by `isBuyerAccount`, and landed on the storefront instead of the
+  // business-details step. Upserting makes the role stick whether or not the
+  // trigger has run.
   if (user) {
     const { data: prof } = await supabase
       .from("profiles")
-      .select("id, full_name, avatar_url, state, city")
+      .select("id, full_name, avatar_url, state, city, role")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -67,10 +88,33 @@ export async function GET(request: Request) {
     const patch: Record<string, string> = {};
     if (!prof?.avatar_url && meta.avatar_url) patch.avatar_url = meta.avatar_url;
     if (!prof?.full_name && meta.full_name) patch.full_name = meta.full_name;
-    if (role === "seller") patch.role = "seller";
+    // Only ever PROMOTE to seller/admin from the query string — never demote.
+    // A returning seller who signs in through a buyer link must not lose their
+    // role, and `role` is a server-side fact the client should not be able to
+    // downgrade.
+    if (role === "seller" && prof?.role !== "seller" && prof?.role !== "admin") {
+      patch.role = "seller";
+    }
     if (role === "admin") patch.role = "admin";
-    if (Object.keys(patch).length && prof) {
-      await supabase.from("profiles").update(patch).eq("id", user.id);
+
+    if (Object.keys(patch).length) {
+      if (prof) {
+        await supabase.from("profiles").update(patch).eq("id", user.id);
+      } else {
+        // The trigger has not created the row yet (or is not deployed). Create
+        // it so the role and the OAuth name/avatar are not lost.
+        await supabase.from("profiles").upsert(
+          {
+            id: user.id,
+            email: user.email ?? null,
+            full_name:
+              patch.full_name ?? meta.full_name ?? user.email?.split("@")[0] ?? "There",
+            avatar_url: patch.avatar_url ?? meta.avatar_url ?? null,
+            role: patch.role ?? "buyer",
+          },
+          { onConflict: "id" },
+        );
+      }
     }
   }
 
@@ -116,7 +160,7 @@ export async function GET(request: Request) {
   if (user) {
     const { data: shop } = await supabase
       .from("shops")
-      .select("id,status,subscription_status,bank_account_number")
+      .select("id,status,verified,subscription_status,bank_account_number")
       .eq("owner_id", user.id)
       .maybeSingle();
 
@@ -140,16 +184,21 @@ export async function GET(request: Request) {
   // No explicit destination: sellers belong in the Seller Hub, buyers on the
   // storefront. Asked of the database, not of a role claim, so an existing
   // seller signing in with Google lands in the right place.
+  //
+  // The gate is asked again rather than testing `status === "draft"`: that
+  // test was wrong twice over — `shops.status` defaults to `'pending'`, never
+  // `'draft'`, so the branch never fired, and it ignored `verified` entirely.
+  // A seller who is not approved AND verified must go to onboarding, not the
+  // hub.
   if (user) {
     const { data: shop } = await supabase
       .from("shops")
-      .select("id,status")
+      .select("id,status,verified,subscription_status,bank_account_number")
       .eq("owner_id", user.id)
       .maybeSingle();
     if (shop) {
-      return NextResponse.redirect(
-        `${origin}${shop.status === "draft" ? "/seller/onboarding" : "/seller"}`,
-      );
+      const gate = sellerGatePath(shop);
+      return NextResponse.redirect(`${origin}${gate ?? "/seller"}`);
     }
   }
 

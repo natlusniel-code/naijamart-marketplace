@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { SUPABASE_URL } from "@/lib/supabase/config";
 import {
   fetchAuthProviders,
   isUnsupportedProviderError,
@@ -55,6 +56,35 @@ export function GoogleButton({
     setBusy(true);
     const supabase = createClient();
     try {
+      // ── Preflight ─────────────────────────────────────────────────────────
+      // `signInWithOAuth` navigates the tab immediately and never returns an
+      // error object for a misconfigured provider — Supabase answers the
+      // navigation with a raw JSON body and the user loses the app. Enabling
+      // the provider in the dashboard is not enough: without a Google client
+      // ID and secret the authorize endpoint still rejects the request.
+      //
+      // So ask the endpoint first, without navigating. A 400 here means the
+      // provider is not actually usable, and we can say so in the UI instead
+      // of sending the user to a JSON page.
+      const probe = await fetch(
+        `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(
+          `${window.location.origin}${redirectTo}`,
+        )}`,
+        { method: "GET", redirect: "manual", cache: "no-store" },
+      );
+
+      // A working provider answers with a 302 to accounts.google.com. A
+      // misconfigured one answers 400 with a JSON error body.
+      if (probe.status === 400) {
+        setBusy(false);
+        setFailedHere(true);
+        markGoogleUnavailable();
+        onError?.(
+          "Google sign-in isn't fully set up on this project yet. Please use your email and password.",
+        );
+        return;
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {

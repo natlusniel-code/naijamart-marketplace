@@ -121,16 +121,13 @@ function showNow(label: string, blocking: boolean) {
     pending.clear();
     emit({ failed: true, blocking: false });
 
-    // And never leave it up indefinitely: hide it after a short beat.
-    if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-      hideTimer = null;
-      emit({ fading: true });
-      fadeTimer = setTimeout(() => {
-        fadeTimer = null;
-        emit({ visible: false, fading: false, failed: false, blocking: false });
-      }, FADE_OUT);
-    }, 6000);
+    // The retry panel STAYS until the user acts on it.
+    //
+    // It used to auto-hide after 6 seconds, which meant the escape hatch
+    // vanished before a user who had looked away could press it — and the
+    // overlay then sat there with no way out at all. A failed load is a
+    // decision point, not a transient state: keep it on screen until Retry
+    // (or a navigation) clears it.
   }, TIMEOUT);
 }
 

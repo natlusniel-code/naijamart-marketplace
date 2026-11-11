@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { subscribeLoader, type LoaderState } from "@/lib/global-loader";
+import { useRouter } from "next/navigation";
+import { subscribeLoader, resetLoader, type LoaderState } from "@/lib/global-loader";
 
 /**
  * The one global loading overlay for the whole site.
@@ -55,7 +56,13 @@ export function GlobalLoader() {
         // Fade in fast, fade out over 200ms.
         "transition-opacity duration-200",
         s.fading ? "opacity-0" : "opacity-100",
-        s.blocking ? "pointer-events-auto" : "pointer-events-none",
+        // `failed` must accept clicks too. The timeout sets `blocking: false`
+        // so the user is not trapped behind a dead overlay — but that also
+        // made the overlay `pointer-events-none`, which is why the Retry
+        // button did nothing: the click passed straight through to the page
+        // underneath and the button was never hit. The retry panel is the one
+        // thing that MUST be clickable when the load has failed.
+        s.blocking || s.failed ? "pointer-events-auto" : "pointer-events-none",
       ].join(" ")}
       // Prevent the page behind from scrolling while a navigation is blocked.
       style={s.blocking ? { touchAction: "none" } : undefined}
@@ -108,6 +115,26 @@ function Spinner() {
 
 /** Shown after 30s: the load is not coming back, so offer a reload. */
 function RetryPanel() {
+  const router = useRouter();
+
+  /**
+   * Retry the page that failed, in place.
+   *
+   * `window.location.reload()` was the old handler and it is the wrong tool:
+   * a full reload throws away the client router, the cart in memory and any
+   * scroll position, and on a slow connection it re-downloads the whole app
+   * just to retry one route. `router.refresh()` re-runs the server components
+   * for the current URL, which is exactly the work that timed out.
+   *
+   * `resetLoader()` runs FIRST so the overlay is torn down before the refresh
+   * starts — otherwise the stale `failed` state would still be on screen and
+   * the user would see the retry panel over the page they just retried.
+   */
+  function retry() {
+    resetLoader();
+    router.refresh();
+  }
+
   return (
     <div className="max-w-[300px] rounded-2xl border border-[var(--line)] bg-white px-5 py-4 shadow-[0_10px_30px_rgba(15,23,42,0.14)]">
       <p className="text-[14px] font-bold text-ink-900">This is taking too long</p>
@@ -115,7 +142,8 @@ function RetryPanel() {
         The page didn&apos;t finish loading. Check your connection and try again.
       </p>
       <button
-        onClick={() => window.location.reload()}
+        type="button"
+        onClick={retry}
         className="nm-btn-primary mt-3 w-full !py-2 !text-[13px]"
       >
         Retry

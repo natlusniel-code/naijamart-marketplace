@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { supportWhatsAppUrl } from "@/lib/support";
 import { Spinner, Alert } from "@/components/ui";
 
 const COOLDOWN = 45;
@@ -95,8 +96,9 @@ export function VerifyEmail({
 
       {limited && !err && !resent && (
         <p className="mx-auto mt-4 max-w-[330px] text-[12.5px] leading-relaxed text-amber-700" role="status">
-          Your account was created, but the mailer hit its hourly limit, so the email may not have gone
-          out yet. Use the resend button below in a little while.
+          Your account was created, but our email service hit its hourly sending limit, so the
+          confirmation email may not have gone out yet. Wait a little while and press resend below —
+          or contact support and we&apos;ll confirm your account for you.
         </p>
       )}
 
@@ -126,6 +128,24 @@ export function VerifyEmail({
       <Alert tone="blue">
         Can&apos;t find it? Check your spam folder — the email comes from Supabase Auth, not NaijaMart.
       </Alert>
+
+      {/* The built-in mailer allows only a couple of emails an hour, so a busy
+          signup period can leave a real user with no email at all. Support can
+          confirm the account by hand, so give them a way to ask. */}
+      <p className="mt-3 text-[12.5px] leading-relaxed text-ink-500">
+        Still nothing after a few minutes?{" "}
+        <a
+          href={supportWhatsAppUrl(
+            `Hi, I signed up for NaijaMart as ${email} but haven't received the confirmation email.`,
+          )}
+          target="_blank"
+          rel="noreferrer"
+          className="font-semibold text-brand-600 hover:underline"
+        >
+          Message support on WhatsApp
+        </a>{" "}
+        and we&apos;ll confirm your account.
+      </p>
 
       <p className="mt-5 text-[12.5px] text-ink-500">
         Already confirmed?{" "}
