@@ -120,17 +120,24 @@ export default async function ProfilePage() {
             <span className="text-ink-400">→</span>
           </Link>
         )}
+        <Link href="/wishlist" className="flex items-center justify-between px-4 py-3 hover:bg-slate-50">
+          <p className="text-[13.5px] font-semibold text-ink-900">Wishlist</p>
+          <span className="text-ink-400">→</span>
+        </Link>
         <Link href="/legal/terms" className="flex items-center justify-between px-4 py-3 hover:bg-slate-50">
           <p className="text-[13.5px] font-semibold text-ink-900">Terms &amp; policies</p>
           <span className="text-ink-400">→</span>
         </Link>
-        <div className="flex items-center justify-between px-4 py-3">
+        {/* This used to read "Order updates by email are always on", which was
+            not true — nothing sends email. It now points at the real
+            notification settings. */}
+        <Link href="/notifications" className="flex items-center justify-between px-4 py-3 hover:bg-slate-50">
           <div>
             <p className="text-[13.5px] font-semibold text-ink-900">Notifications</p>
-            <p className="text-[11.5px] text-ink-500">Order updates by email are always on</p>
+            <p className="text-[11.5px] text-ink-500">Order updates in the app, and on your phone if you allow it</p>
           </div>
-          <span className="rounded-full bg-brand-500 px-2 py-1 text-[10.5px] font-bold text-white">ON</span>
-        </div>
+          <span className="text-ink-400">→</span>
+        </Link>
       </Card>
 
       <SignOutButton />

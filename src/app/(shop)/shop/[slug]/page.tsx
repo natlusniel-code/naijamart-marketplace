@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSession, createClient } from "@/lib/supabase/server";
-import { getShopBySlug, getShopListings, getShopReviews } from "@/lib/queries";
+import { getShopBySlug, getShopListings, getShopReviews, getWishlistIds } from "@/lib/queries";
 import { naira, shortDate } from "@/lib/utils";
 import { Star, VerifiedBadge, Badge, Avatar, EmptyState } from "@/components/ui";
 import { ListingCard } from "@/components/cards";
@@ -20,7 +20,12 @@ export default async function ShopPage({ params }: { params: { slug: string } })
   const isOwner = session?.shop?.id === shop.id;
   if (shop.status !== "approved" && !isOwner && !session?.isAdmin) notFound();
 
-  const [listings, reviews] = await Promise.all([getShopListings(shop.id), getShopReviews(shop.id, 8)]);
+  const [listings, reviews, savedIds] = await Promise.all([
+    getShopListings(shop.id),
+    getShopReviews(shop.id, 8),
+    session ? getWishlistIds(session.user.id) : Promise.resolve([] as string[]),
+  ]);
+  const saved = new Set(savedIds);
 
   const supabase = createClient();
   const { count: followers } = await supabase
@@ -145,7 +150,9 @@ export default async function ShopPage({ params }: { params: { slug: string } })
               <section>
                 <h2 className="mb-2.5 text-[15.5px] font-bold text-ink-900">Goods</h2>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                  {goods.map((l) => <ListingCard key={l.id} l={l} />)}
+                  {goods.map((l) => (
+                    <ListingCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
+                  ))}
                 </div>
               </section>
             )}

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getSession } from "@/lib/supabase/server";
-import { searchListings, getCategories, getPlaces, resolveCity, ALL_CITIES } from "@/lib/queries";
+import { searchListings, getCategories, getPlaces, resolveCity, getWishlistIds, ALL_CITIES } from "@/lib/queries";
 import { ListingCard } from "@/components/cards";
 import { LocationFilter } from "@/components/location-filter";
 import { EmptyState } from "@/components/ui";
@@ -23,7 +23,7 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
   const city = resolveCity(searchParams.city, myCity);
   const browsingAll = city === null;
 
-  const [cats, places, results] = await Promise.all([
+  const [cats, places, results, savedIds] = await Promise.all([
     getCategories(),
     getPlaces(),
     searchListings({
@@ -38,7 +38,9 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
       sort: searchParams.sort,
       type: searchParams.type === "service" ? "service" : searchParams.type === "product" ? "product" : undefined,
     }),
+    session ? getWishlistIds(session.user.id) : Promise.resolve([] as string[]),
   ]);
+  const saved = new Set(savedIds);
 
   const qs = (patch: Partial<SP>) => {
     const p = new URLSearchParams();
@@ -141,7 +143,9 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
         />
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {results.map((l) => <ListingCard key={l.id} l={l} />)}
+          {results.map((l) => (
+            <ListingCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
+          ))}
         </div>
       )}
     </div>

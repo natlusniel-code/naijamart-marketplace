@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { naira, cn } from "@/lib/utils";
+import { naira, cn, discountPercent } from "@/lib/utils";
 import { Star, VerifiedBadge } from "@/components/ui";
+import { WishlistButton } from "@/components/wishlist-button";
 import type { Listing, ShopLite } from "@/lib/queries";
 
 /** "Ikeja, Lagos" — the location line every card must show. */
@@ -21,9 +22,21 @@ function PinIcon({ className }: { className?: string }) {
   );
 }
 
-export function ListingCard({ l, className }: { l: Listing; className?: string }) {
+export function ListingCard({
+  l,
+  className,
+  saved = false,
+  signedIn = false,
+}: {
+  l: Listing;
+  className?: string;
+  /** Whether this buyer already has it in their wishlist. */
+  saved?: boolean;
+  signedIn?: boolean;
+}) {
   const img = l.images?.[0];
   const place = placeLabel(l.shops);
+  const pct = discountPercent(Number(l.price), l.original_price);
   return (
     <Link
       href={`/listing/${l.id}`}
@@ -37,10 +50,22 @@ export function ListingCard({ l, className }: { l: Listing; className?: string }
           <div className="grid h-full place-items-center text-3xl text-slate-300">📦</div>
         )}
         {l.type === "service" && (
-          <span className="absolute left-2 top-2 rounded-full bg-ink-900/80 px-2 py-0.5 text-[10.5px] font-semibold text-white">
+          <span
+            className={cn(
+              "absolute left-2 rounded-full bg-ink-900/80 px-2 py-0.5 text-[10.5px] font-semibold text-white",
+              pct > 0 ? "top-9" : "top-2",
+            )}
+          >
             Service
           </span>
         )}
+        {/* discount badge — only when the price is genuinely lower */}
+        {pct > 0 && (
+          <span className="absolute left-2 top-2 rounded-full bg-red-500 px-2 py-0.5 text-[10.5px] font-bold text-white shadow-sm">
+            {Number.isInteger(pct) ? pct : pct.toFixed(1)}% off
+          </span>
+        )}
+        <WishlistButton listingId={l.id} saved={saved} signedIn={signedIn} />
         {/* location badge — always visible so the buyer knows where it ships from */}
         {place && (
           <span className="absolute bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-[10.5px] font-semibold text-ink-700 shadow-sm backdrop-blur">
@@ -57,9 +82,12 @@ export function ListingCard({ l, className }: { l: Listing; className?: string }
 
       <div className="p-3">
         <p className="line-clamp-2 min-h-[36px] text-[13.5px] font-semibold leading-snug text-ink-900">{l.title}</p>
-        <p className="mt-1.5 text-[15px] font-extrabold text-ink-900">
+        <p className="mt-1.5 flex flex-wrap items-baseline gap-1.5 text-[15px] font-extrabold text-ink-900">
           {naira(l.price)}
-          {l.type === "service" && <span className="ml-1 text-[11.5px] font-medium text-ink-400">from</span>}
+          {pct > 0 && l.original_price != null && (
+            <span className="text-[11.5px] font-medium text-ink-400 line-through">{naira(l.original_price)}</span>
+          )}
+          {l.type === "service" && <span className="text-[11.5px] font-medium text-ink-400">from</span>}
         </p>
         <div className="mt-1 flex items-center gap-1.5">
           <p className="truncate text-[11.5px] text-ink-500">{l.shops?.name}</p>

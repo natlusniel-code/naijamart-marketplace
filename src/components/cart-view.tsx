@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { readCart, writeCart, setQuantity, setFulfilment, removeShop, shopSubtotal, shopDelivery, type Cart, type CartShop } from "@/lib/cart";
-import { naira } from "@/lib/utils";
+import { naira, discountPercent } from "@/lib/utils";
 import { EmptyState, Alert, Badge } from "@/components/ui";
 
 export function CartView() {
@@ -112,7 +112,12 @@ function ShopGroup({ shop }: { shop: CartShop }) {
             </Link>
             <div className="min-w-0 flex-1">
               <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-ink-900">{l.title}</p>
-              <p className="mt-0.5 text-[13px] font-bold text-ink-900">{naira(l.price)}</p>
+              <p className="mt-0.5 flex flex-wrap items-baseline gap-1.5 text-[13px] font-bold text-ink-900">
+                {naira(l.price)}
+                {discountPercent(l.price, l.originalPrice) > 0 && l.originalPrice != null && (
+                  <span className="text-[11px] font-medium text-ink-400 line-through">{naira(l.originalPrice)}</span>
+                )}
+              </p>
               <div className="mt-1.5 flex items-center gap-1 rounded-lg border border-[var(--line)] px-1 w-fit">
                 <button
                   onClick={() => setQuantity(shop.shopId, l.listingId, l.quantity - 1)}
