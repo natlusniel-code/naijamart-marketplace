@@ -56,9 +56,9 @@ function refreshAdmin(extra?: string[]) {
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────────
  * Payments — verify or reject a buyer's transfer receipt (the escrow gate)
- * ──────────────────────────────────────────────────────────────────────────── */
+ * ────────────────────────────────────────────────────────────────────────── */
 export async function verifyPayment(
   paymentId: string,
   approve: boolean,
@@ -83,7 +83,7 @@ export async function verifyPayment(
       return { ok: false, error: "That payment is already verified." };
     }
 
-    /* ── Reject ─────────────────────────────────────────────────────────── */
+    /* ── Reject ──────────────────────────────────────────────────────────── */
     if (!approve) {
       const { error } = await supabase
         .from("payments")
@@ -141,7 +141,7 @@ export async function verifyPayment(
       return { ok: true };
     }
 
-    /* ── Approve ────────────────────────────────────────────────────────── */
+    /* ── Approve ─────────────────────────────────────────────────────────── */
     const { error: verifyErr } = await supabase
       .from("payments")
       .update({
@@ -197,9 +197,9 @@ export async function verifyPayment(
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────────
  * Payouts
- * ──────────────────────────────────────────────────────────────────────────── */
+ * ────────────────────────────────────────────────────────────────────────── */
 export async function markPayoutPaid(
   payoutId: string,
   reference?: string,
@@ -244,9 +244,9 @@ export async function markPayoutPaid(
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────────
  * Disputes
- * ──────────────────────────────────────────────────────────────────────────── */
+ * ────────────────────────────────────────────────────────────────────────── */
 export async function resolveDispute(
   disputeId: string,
   outcome: "resolved_buyer" | "resolved_seller",
@@ -298,13 +298,23 @@ export async function resolveDispute(
         .eq("order_id", order.id)
         .eq("status", "queued");
     } else {
-      // Seller wins: treat as delivered and queue the payout, unlocked in 4 days.
+      // Seller wins: treat as delivered and queue the payout.
       await supabase
         .from("orders")
         .update({ status: "delivered", payout_status: "released" })
         .eq("id", order.id);
 
-      const availableAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      // The hold matches `payout_hold_days` in platform_settings — the same
+      // rule admin_resolve_dispute applies in SQL. It used to be hardcoded to
+      // one day here, which quietly paid a seller three days earlier than the
+      // platform allows every other release path.
+      const { data: settings } = await supabase
+        .from("platform_settings")
+        .select("payout_hold_days")
+        .eq("id", 1)
+        .maybeSingle();
+      const holdDays = Number(settings?.payout_hold_days ?? 4);
+      const availableAt = new Date(Date.now() + holdDays * 24 * 60 * 60 * 1000).toISOString();
       await supabase.from("payouts").insert({
         shop_id: order.shop_id,
         order_id: order.id,
@@ -324,9 +334,9 @@ export async function resolveDispute(
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────────
  * Sellers
- * ──────────────────────────────────────────────────────────────────────────── */
+ * ────────────────────────────────────────────────────────────────────────── */
 export async function setShopStatus(
   shopId: string,
   status: "pending" | "approved" | "suspended" | "rejected",
@@ -411,9 +421,9 @@ export async function toggleShopSuspend(
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────────
  * Reviews
- * ──────────────────────────────────────────────────────────────────────────── */
+ * ────────────────────────────────────────────────────────────────────────── */
 export async function moderateReview(
   reviewId: string,
   status: "published" | "hidden",
@@ -431,9 +441,9 @@ export async function moderateReview(
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────────
  * Buyers
- * ──────────────────────────────────────────────────────────────────────────── */
+ * ────────────────────────────────────────────────────────────────────────── */
 export async function setBuyerBanned(profileId: string, banned: boolean): Promise<ActionResult> {
   if (!hasAdminKey) return { ok: false, error: NO_KEY };
 
@@ -451,9 +461,9 @@ export async function setBuyerBanned(profileId: string, banned: boolean): Promis
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────────
  * Platform settings
- * ──────────────────────────────────────────────────────────────────────────── */
+ * ────────────────────────────────────────────────────────────────────────── */
 export async function saveSettings(input: {
   commission_rate: number;
   subscription_price: number;
@@ -488,9 +498,117 @@ export async function saveSettings(input: {
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────────
+ * General notifications (broadcast)
+ *
+ * An admin sends one message to buyers, sellers, or everyone. It is stored as
+ * one `notifications` row PER RECIPIENT rather than a single shared row with a
+ * read flag, because "read" is per person: a shared row cannot express "buyer A
+ * has seen this and buyer B has not", and the unread badge would be wrong for
+ * everyone.
+ *
+ * The fan-out is done in batches. A single insert of 50,000 rows would time out
+ * and, worse, would either all land or none — a partial send is far more
+ * confusing than a slow one. Batching means a failure halfway through leaves a
+ * known number delivered, which the result reports honestly.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+export type BroadcastAudience = "buyers" | "sellers" | "everyone";
+
+export type BroadcastResult = ActionResult & {
+  sent?: number;
+  audience?: BroadcastAudience;
+  broadcastId?: string;
+};
+
+const BATCH = 500;
+
+export async function sendBroadcast(input: {
+  title: string;
+  body: string;
+  audience: BroadcastAudience;
+  href?: string;
+}): Promise<BroadcastResult> {
+  if (!hasAdminKey) return { ok: false, error: NO_KEY };
+
+  const title = input.title.trim();
+  const body = input.body.trim();
+  if (title.length < 3) return { ok: false, error: "Give the notification a title." };
+  if (body.length < 3) return { ok: false, error: "Write the message you want to send." };
+  if (title.length > 120) return { ok: false, error: "Keep the title under 120 characters." };
+  if (body.length > 1000) return { ok: false, error: "Keep the message under 1000 characters." };
+
+  try {
+    const supabase = createAdminClient();
+
+    // Resolve the audience to a list of user ids.
+    //
+    // Sellers are identified by owning a shop, not by profiles.role — a user
+    // can be a buyer who later opened a shop, and their role column may still
+    // say 'buyer'. Ownership is the fact that matters.
+    let userIds: string[] = [];
+
+    if (input.audience === "sellers") {
+      const { data: shops, error } = await supabase.from("shops").select("owner_id").not("owner_id", "is", null);
+      if (error) return fail(error);
+      userIds = Array.from(new Set((shops ?? []).map((s: { owner_id: string }) => s.owner_id).filter(Boolean)));
+    } else if (input.audience === "buyers") {
+      const { data: shops } = await supabase.from("shops").select("owner_id").not("owner_id", "is", null);
+      const sellerIds = new Set((shops ?? []).map((s: { owner_id: string }) => s.owner_id).filter(Boolean));
+      const { data: people, error } = await supabase.from("profiles").select("id").eq("is_banned", false);
+      if (error) return fail(error);
+      userIds = (people ?? [])
+        .map((p: { id: string }) => p.id)
+        .filter((id: string) => !sellerIds.has(id));
+    } else {
+      const { data: people, error } = await supabase.from("profiles").select("id").eq("is_banned", false);
+      if (error) return fail(error);
+      userIds = (people ?? []).map((p: { id: string }) => p.id);
+    }
+
+    if (userIds.length === 0) {
+      return { ok: false, error: "There is nobody in that audience yet." };
+    }
+
+    const broadcastId = crypto.randomUUID();
+    const href = input.href?.trim() || null;
+    let sent = 0;
+
+    for (let i = 0; i < userIds.length; i += BATCH) {
+      const slice = userIds.slice(i, i + BATCH);
+      const { error } = await supabase.from("notifications").insert(
+        slice.map((uid) => ({
+          user_id: uid,
+          kind: "broadcast" as const,
+          title,
+          body,
+          href,
+          broadcast_id: broadcastId,
+        })),
+      );
+      if (error) {
+        // Report what actually went out rather than claiming success.
+        return {
+          ok: false,
+          error: `Sent to ${sent} of ${userIds.length} before failing: ${error.message}`,
+          sent,
+          audience: input.audience,
+          broadcastId,
+        };
+      }
+      sent += slice.length;
+    }
+
+    refreshAdmin(["/notifications"]);
+    return { ok: true, sent, audience: input.audience, broadcastId };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
  * Categories
- * ──────────────────────────────────────────────────────────────────────────── */
+ * ────────────────────────────────────────────────────────────────────────── */
 export async function addCategory(name: string, slug: string, sortOrder: number): Promise<ActionResult> {
   if (!hasAdminKey) return { ok: false, error: NO_KEY };
   if (name.trim().length < 2) return { ok: false, error: "Give the category a name." };

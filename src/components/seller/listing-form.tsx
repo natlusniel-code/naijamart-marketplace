@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { Spinner, Alert, Card, Badge } from "@/components/ui";
-import { naira } from "@/lib/utils";
+import { naira, discountPercent } from "@/lib/utils";
 
 export function ListingForm({
   shopId,
@@ -26,6 +26,7 @@ export function ListingForm({
     description: listing?.description ?? "",
     category_id: listing?.category_id ?? categories[0]?.id ?? "",
     price: listing?.price ? String(listing.price) : "",
+    original_price: listing?.original_price != null ? String(listing.original_price) : "",
     stock: listing?.stock != null ? String(listing.stock) : "0",
     delivery_fee_override: listing?.delivery_fee_override != null ? String(listing.delivery_fee_override) : "",
     free_delivery_threshold: listing?.free_delivery_threshold != null ? String(listing.free_delivery_threshold) : "",
@@ -52,6 +53,11 @@ export function ListingForm({
     if (form.title.trim().length < 3) return "Give the listing a title.";
     if (!form.price || Number(form.price) <= 0) return "Enter a price above zero.";
     if (type === "product" && Number(form.stock) < 0) return "Stock can't be negative.";
+    // The database enforces this too, but catching it here means the seller
+    // sees the problem next to the field instead of as a failed save.
+    if (form.original_price && Number(form.original_price) < Number(form.price)) {
+      return "The original price must be at least the price you are selling at.";
+    }
     return "";
   }
 
@@ -69,6 +75,7 @@ export function ListingForm({
       description: form.description || null,
       category_id: form.category_id || null,
       price: Number(form.price),
+      original_price: form.original_price ? Number(form.original_price) : null,
       stock: type === "product" ? Number(form.stock) : 0,
       images,
       delivery_fee_override: form.delivery_fee_override ? Number(form.delivery_fee_override) : null,
@@ -135,6 +142,57 @@ export function ListingForm({
               <input className="nm-input" inputMode="numeric" value={form.price}
                 onChange={(e) => setForm((f) => ({ ...f, price: e.target.value.replace(/\D/g, "") }))} placeholder="8000" />
             </div>
+          </div>
+
+          {/* ---------------------------------------------------------------
+              Discount. The seller enters the price they USED to charge; the
+              percentage is computed, never typed, so the badge on the
+              storefront can never disagree with the two numbers.
+             --------------------------------------------------------------- */}
+          <div className="rounded-xl border border-[var(--line)] bg-slate-50/60 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="nm-label !mb-0">Original price (₦)</label>
+              <span className="text-[11px] text-ink-400">Optional</span>
+            </div>
+            <input
+              className="nm-input mt-1.5"
+              inputMode="numeric"
+              value={form.original_price}
+              onChange={(e) => setForm((f) => ({ ...f, original_price: e.target.value.replace(/\D/g, "") }))}
+              placeholder="e.g. 12000 — leave empty for no discount"
+            />
+
+            {(() => {
+              const pct = discountPercent(Number(form.price || 0), form.original_price ? Number(form.original_price) : null);
+              const invalid = !!form.original_price && Number(form.original_price) < Number(form.price || 0);
+              if (invalid) {
+                return (
+                  <p className="mt-1.5 text-[11.5px] font-medium text-red-600">
+                    The original price must be at least ₦{Number(form.price || 0).toLocaleString("en-NG")}.
+                  </p>
+                );
+              }
+              if (pct > 0) {
+                return (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-brand-500 px-2 py-0.5 text-[11.5px] font-bold text-white">
+                      {Number.isInteger(pct) ? pct : pct.toFixed(1)}% off
+                    </span>
+                    <span className="text-[11.5px] text-ink-500">
+                      Buyers see <s>{naira(Number(form.original_price))}</s>{" "}
+                      <strong className="text-ink-900">{naira(Number(form.price))}</strong> — saving{" "}
+                      {naira(Number(form.original_price) - Number(form.price))}
+                    </span>
+                  </div>
+                );
+              }
+              return (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">
+                  Add what the item normally sells for and we work out the percentage for you. Leave it empty and no
+                  discount badge is shown.
+                </p>
+              );
+            })()}
           </div>
 
           {type === "product" ? (
