@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { toPublicUrl, toPublicUrls } from "@/lib/storage";
 import { naira, shortDate } from "@/lib/utils";
 import { Card, Badge, EmptyState, Tabs } from "@/components/ui";
 import { SellerDecision, SellerSuspend } from "@/components/admin/seller-actions";
@@ -44,7 +45,24 @@ export default async function AdminSellersPage({ searchParams }: { searchParams:
             {shown.map((s: any) => (
               <Card key={s.id} className="p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 items-start gap-3">
+                    {toPublicUrl(s.logo_url) ? (
+                      <a
+                        href={toPublicUrl(s.logo_url)!}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-[var(--line)] bg-slate-50"
+                        title="Shop logo"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={toPublicUrl(s.logo_url)!} alt={`${s.name} logo`} className="h-full w-full object-cover" />
+                      </a>
+                    ) : (
+                      <div className="grid h-16 w-16 shrink-0 place-items-center rounded-xl border border-dashed border-[var(--line)] bg-slate-50 text-lg text-ink-400">
+                        🏪
+                      </div>
+                    )}
+                    <div className="min-w-0">
                     <p className="text-[15px] font-bold text-ink-900">{s.name}</p>
                     <p className="text-[12px] text-ink-500">
                       {s.category} · {s.city}, {s.state} · applied {shortDate(s.created_at)}
@@ -53,6 +71,7 @@ export default async function AdminSellersPage({ searchParams }: { searchParams:
                       <Badge tone="amber">pending</Badge>
                       <Badge tone={s.subscription_status === "pending" ? "blue" : "gray"}>sub: {s.subscription_status}</Badge>
                       <Badge tone="gray">{s.kind}</Badge>
+                    </div>
                     </div>
                   </div>
                   <SellerDecision shopId={s.id} />
@@ -72,14 +91,17 @@ export default async function AdminSellersPage({ searchParams }: { searchParams:
                   </div>
                 </dl>
 
-                {s.documents?.length ? (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {s.documents.map((d: string) => (
-                      <a key={d} href={d} target="_blank" rel="noreferrer" className="h-14 w-14 overflow-hidden rounded-lg border border-[var(--line)]">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={d} alt="document" className="h-full w-full object-cover" />
-                      </a>
-                    ))}
+                {toPublicUrls(s.documents ?? []).length ? (
+                  <div className="mt-2">
+                    <p className="text-[10.5px] uppercase tracking-wide text-ink-400">Verification documents</p>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {toPublicUrls(s.documents ?? []).map((d) => (
+                        <a key={d} href={d} target="_blank" rel="noreferrer" className="h-14 w-14 overflow-hidden rounded-lg border border-[var(--line)]">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={d} alt="Verification document" className="h-full w-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   <p className="mt-2 text-[11.5px] text-amber-700">No documents uploaded — request more info.</p>
