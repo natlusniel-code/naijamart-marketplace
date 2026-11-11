@@ -93,7 +93,7 @@ export default async function SellerDashboard() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Revenue this month" value={naira(revenueMonth)} hint="after 5% commission" tone="brand" />
         <Stat label="Orders" value={String(newOrders + inProgress)} hint={`${newOrders} new · ${inProgress} in progress`} />
-        <Stat label="Pending payout" value={naira(pendingPayout)} hint="releases 24–48h after delivery" tone="amber" />
+        <Stat label="Pending payout" value={naira(pendingPayout)} hint="releases 4 days after delivery" tone="amber" />
         <Stat label="Shop rating" value={shop.verified ? "—" : "—"} hint="from buyer reviews" />
       </div>
 

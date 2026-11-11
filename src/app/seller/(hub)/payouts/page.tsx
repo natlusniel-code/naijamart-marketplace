@@ -33,7 +33,7 @@ export default async function PayoutsPage() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Available now" value={naira(sum(available))} tone="brand" />
-        <Stat label="Pending release" value={naira(sum(locked))} hint="24–48h after delivery" tone="amber" />
+        <Stat label="Pending release" value={naira(sum(locked))} hint="4 days after delivery" tone="amber" />
         <Stat label="Requested" value={naira(sum(requested))} hint="processing" />
         <Stat label="Paid out" value={naira(sum(paid))} hint={`${paid.length} payouts`} />
       </div>
@@ -41,7 +41,7 @@ export default async function PayoutsPage() {
       <Card className="border-brand-500/20 bg-brand-50/50 p-4">
         <p className="text-[13.5px] font-bold text-brand-900">Withdraw your balance</p>
         <p className="mt-1 text-[12.5px] leading-relaxed text-brand-900/80">
-          Payouts are processed within 24–48 hours of delivery confirmation, straight to{" "}
+          Payouts are processed 4 days after delivery confirmation, straight to{" "}
           {session.shop.name ? "your registered bank account" : "your bank account"}. Request any amount that&apos;s available.
         </p>
         <div className="mt-2.5">
@@ -56,7 +56,7 @@ export default async function PayoutsPage() {
             <EmptyState
               icon="💸"
               title="No payouts yet"
-              body="Once a buyer confirms delivery, your net amount (after the 5% commission) is queued here and unlocks within 24 hours."
+              body="Once a buyer confirms delivery, your net amount (after the 5% commission) is queued here and unlocks 4 days later."
               action="See your orders"
               href="/seller/orders"
             />
@@ -86,7 +86,7 @@ export default async function PayoutsPage() {
                       <td className="px-2 py-2 text-right font-bold text-ink-900">{naira(p.amount)}</td>
                       <td className="px-4 py-2">
                         <Badge tone={p.status === "paid" ? "green" : p.requested_at ? "blue" : isLocked ? "amber" : "green"}>
-                          {p.status === "paid" ? "Paid" : p.requested_at ? "Processing" : isLocked ? "Locked 24h" : "Available"}
+                          {p.status === "paid" ? "Paid" : p.requested_at ? "Processing" : isLocked ? "Locked 4 days" : "Available"}
                         </Badge>
                       </td>
                     </tr>

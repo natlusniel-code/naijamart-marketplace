@@ -10,9 +10,6 @@ export function SettingsForm({ settings }: { settings: any }) {
   const [form, setForm] = useState({
     commission_pct: String((Number(settings?.commission_rate ?? 0.05) * 100).toFixed(1)),
     subscription_price: String(settings?.subscription_price ?? 5000),
-    bank_name: settings?.bank_name ?? "",
-    bank_account_number: settings?.bank_account_number ?? "",
-    bank_account_name: settings?.bank_account_name ?? "",
     default_delivery_fee: String(settings?.default_delivery_fee ?? 500),
     free_delivery_default: String(settings?.free_delivery_default ?? 20000),
     terms_text: settings?.terms_text ?? "",
@@ -27,9 +24,6 @@ export function SettingsForm({ settings }: { settings: any }) {
     const result = await saveSettings({
       commission_rate: Number(form.commission_pct) / 100,
       subscription_price: Number(form.subscription_price),
-      bank_name: form.bank_name,
-      bank_account_number: form.bank_account_number,
-      bank_account_name: form.bank_account_name,
       default_delivery_fee: Number(form.default_delivery_fee),
       free_delivery_default: Number(form.free_delivery_default),
       terms_text: form.terms_text,
@@ -68,24 +62,14 @@ export function SettingsForm({ settings }: { settings: any }) {
         </div>
       </div>
 
-      <p className="pt-1 text-[12.5px] font-bold text-ink-900">Escrow bank account</p>
-      <p className="text-[11.5px] text-ink-500">Buyers transfer here. Details appear on every checkout.</p>
-      <div>
-        <label className="nm-label">Bank</label>
-        <input className="nm-input" value={form.bank_name} onChange={(e) => setForm((f) => ({ ...f, bank_name: e.target.value }))} />
-      </div>
-      <div className="grid grid-cols-2 gap-2.5">
-        <div>
-          <label className="nm-label">Account number</label>
-          <input className="nm-input" inputMode="numeric" value={form.bank_account_number}
-            onChange={(e) => setForm((f) => ({ ...f, bank_account_number: e.target.value.replace(/\D/g, "") }))} />
-        </div>
-        <div>
-          <label className="nm-label">Account name</label>
-          <input className="nm-input" value={form.bank_account_name}
-            onChange={(e) => setForm((f) => ({ ...f, bank_account_name: e.target.value }))} />
-        </div>
-      </div>
+      <p className="pt-1 text-[12.5px] font-bold text-ink-900">Escrow bank accounts</p>
+      <p className="text-[11.5px] text-ink-500">
+        Managed on the{" "}
+        <a href="/admin-fuckliving/payment-accounts" className="font-semibold text-brand-600 underline">
+          Payment accounts
+        </a>{" "}
+        page — add as many as you need and buyers are rotated across the active ones.
+      </p>
 
       <p className="pt-1 text-[12.5px] font-bold text-ink-900">Terms & refund policy</p>
       <textarea rows={5} className="nm-input resize-y !text-[12px]" value={form.terms_text}

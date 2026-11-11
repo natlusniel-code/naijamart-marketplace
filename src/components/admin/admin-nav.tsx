@@ -9,12 +9,14 @@ const BASE = "/admin-fuckliving";
 const ITEMS = [
   { href: BASE, label: "Dashboard", exact: true },
   { href: `${BASE}/payments`, label: "Payments" },
+  { href: `${BASE}/payment-accounts`, label: "Payment accounts" },
   { href: `${BASE}/sellers`, label: "Sellers" },
   { href: `${BASE}/buyers`, label: "Buyers" },
   { href: `${BASE}/orders`, label: "Orders" },
   { href: `${BASE}/disputes`, label: "Disputes" },
   { href: `${BASE}/payouts`, label: "Payouts" },
   { href: `${BASE}/reviews`, label: "Reviews" },
+  { href: `${BASE}/blocked-messages`, label: "Blocked messages" },
   { href: `${BASE}/settings`, label: "Settings" },
 ];
 

@@ -53,7 +53,7 @@ export default async function AdminPayoutsPage() {
         <p className="border-b border-[var(--line)] px-4 py-2.5 text-[14px] font-bold text-ink-900">Payout queue</p>
         {queue.length === 0 ? (
           <div className="p-4">
-            <EmptyState icon="💸" title="Nothing to pay out" body="A payout appears here once a buyer confirms delivery and the 24-hour hold passes." />
+            <EmptyState icon="💸" title="Nothing to pay out" body="A payout appears here once a buyer confirms delivery and the 4-day hold passes." />
           </div>
         ) : (
           <ul className="divide-y divide-[var(--line)]">

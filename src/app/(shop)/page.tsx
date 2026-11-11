@@ -22,9 +22,10 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
   const myCity = session?.profile.city ?? null;
   const myState = session?.profile.state ?? null;
 
-  // Bound to the buyer's city by default; ?city=all (or any other city)
-  // widens it. `null` means "no city filter".
-  const city = resolveCity(searchParams.city, myCity);
+  // The storefront is open by default: products and services load straight
+  // away with no city/state gate. A buyer can still narrow the feed with
+  // ?city=…, but nothing is hidden until they pick a location.
+  const city = resolveCity(searchParams.city, null);
   const browsingAll = city === null;
 
   const [categories, places, shops, products, services] = await Promise.all([

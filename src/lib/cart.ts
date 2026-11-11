@@ -6,6 +6,8 @@ export type CartShop = {
   shopName: string;
   shopLogo: string | null;
   city: string;
+  /** Seller's state — the checkout distance rule compares it with the buyer's. */
+  state: string;
   deliveryFee: number;
   freeThreshold: number | null;
   pickupAvailable: boolean;
@@ -45,6 +47,7 @@ export function addToCart(item: {
   shopName: string;
   shopLogo?: string | null;
   city?: string;
+  state?: string;
   deliveryFee?: number;
   freeThreshold?: number | null;
   pickupAvailable?: boolean;
@@ -63,6 +66,7 @@ export function addToCart(item: {
       shopName: item.shopName,
       shopLogo: item.shopLogo ?? null,
       city: item.city ?? "",
+      state: item.state ?? "",
       deliveryFee: item.deliveryFee ?? 0,
       freeThreshold: item.freeThreshold ?? null,
       pickupAvailable: item.pickupAvailable ?? true,

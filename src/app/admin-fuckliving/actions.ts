@@ -298,7 +298,7 @@ export async function resolveDispute(
         .eq("order_id", order.id)
         .eq("status", "queued");
     } else {
-      // Seller wins: treat as delivered and queue the payout, unlocked in 24h.
+      // Seller wins: treat as delivered and queue the payout, unlocked in 4 days.
       await supabase
         .from("orders")
         .update({ status: "delivered", payout_status: "released" })
@@ -457,9 +457,6 @@ export async function setBuyerBanned(profileId: string, banned: boolean): Promis
 export async function saveSettings(input: {
   commission_rate: number;
   subscription_price: number;
-  bank_name: string;
-  bank_account_number: string;
-  bank_account_name: string;
   default_delivery_fee: number;
   free_delivery_default: number;
   terms_text: string;
@@ -477,9 +474,6 @@ export async function saveSettings(input: {
       .update({
         commission_rate: input.commission_rate,
         subscription_price: input.subscription_price,
-        bank_name: input.bank_name.trim(),
-        bank_account_number: input.bank_account_number.trim(),
-        bank_account_name: input.bank_account_name.trim(),
         default_delivery_fee: input.default_delivery_fee,
         free_delivery_default: input.free_delivery_default,
         terms_text: input.terms_text,

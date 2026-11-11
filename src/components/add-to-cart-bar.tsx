@@ -12,7 +12,7 @@ export function AddToCartBar({
   signedIn,
 }: {
   listing: { id: string; title: string; price: number; images: string[] };
-  shop: { id: string; slug: string; name: string; logo_url: string | null; city: string | null; delivery_fee: number; free_delivery_threshold: number | null; pickup_available: boolean };
+  shop: { id: string; slug: string; name: string; logo_url: string | null; city: string | null; state: string | null; delivery_fee: number; free_delivery_threshold: number | null; pickup_available: boolean };
   signedIn: boolean;
 }) {
   const router = useRouter();
@@ -27,6 +27,7 @@ export function AddToCartBar({
       shopName: shop.name,
       shopLogo: shop.logo_url,
       city: shop.city ?? "",
+      state: shop.state ?? "",
       deliveryFee: shop.delivery_fee,
       freeThreshold: shop.free_delivery_threshold,
       pickupAvailable: shop.pickup_available,

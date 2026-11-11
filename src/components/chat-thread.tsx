@@ -93,6 +93,11 @@ export function ChatThread({
   /** image chosen but NOT sent yet — confirm before it leaves (item 5) */
   const [pendingImage, setPendingImage] = useState<{ file: File; preview: string } | null>(null);
   const [err, setErr] = useState("");
+  /**
+   * Set when the server refused a message. The text is never sent, so the
+   * receiver never sees it — the sender gets this one warning instead.
+   */
+  const [blocked, setBlocked] = useState("");
   const bottom = useRef<HTMLDivElement | null>(null);
 
   const scrollDown = useCallback(() => {
@@ -174,39 +179,53 @@ export function ChatThread({
     });
   }, [chatId, incomingCount, router]);
 
+  /**
+   * Send through `send_chat_message()` (sql/0011).
+   *
+   * The check runs in Postgres, not here: the direct INSERT policy on
+   * `messages` is gone, so this RPC is the only way a message can be
+   * written. A refused message is never inserted — the server returns
+   * `{ blocked: true, warning }` and we show the warning instead of a
+   * bubble. Nothing is masked and nothing partial is sent.
+   */
   async function send(e?: React.FormEvent) {
     e?.preventDefault();
     const body = text.trim();
     if (!body) return;
 
-    // Optimistic: render immediately, reconcile when the server answers.
-    const optimistic: Msg = {
-      id: tempId(),
-      sender_id: meId,
-      body,
-      image_url: null,
-      created_at: new Date().toISOString(),
-      pending: true,
-    };
-    setMessages((prev) => [...prev, optimistic]);
-    setText("");
     setErr("");
+    setBlocked("");
     setBusy(true);
 
     const supabase = createClient();
-    const { data, error } = await supabase
-      .from("messages")
-      .insert({ chat_id: chatId, sender_id: meId, body })
-      .select("id,sender_id,body,image_url,created_at,read_at,delivered_at")
-      .single();
+    const { data, error } = await supabase.rpc("send_chat_message", {
+      p_chat_id: chatId,
+      p_body: body,
+      p_image_url: null,
+    });
 
     setBusy(false);
+
     if (error) {
-      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false, failed: true } : m)));
       setErr(error.message);
       return;
     }
-    setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? (data as Msg) : m)));
+
+    const result = (Array.isArray(data) ? data[0] : data) as
+      | { blocked?: boolean; warning?: string; message?: Msg }
+      | null;
+
+    if (result?.blocked) {
+      // Keep the text in the box so the sender can rewrite it.
+      setBlocked(result.warning ?? "This message was not sent.");
+      return;
+    }
+
+    if (result?.message) {
+      const saved = result.message;
+      setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
+      setText("");
+    }
   }
 
   /** Step 1 of an image send: stage it. Nothing is uploaded or sent yet. */
@@ -232,25 +251,30 @@ export function ChatThread({
     setErr("");
     try {
       const url = await uploadToBucket(file, `chat/${chatId}`);
-      const optimistic: Msg = {
-        id: tempId(),
-        sender_id: meId,
-        body: null,
-        image_url: preview,
-        created_at: new Date().toISOString(),
-        pending: true,
-      };
-      setMessages((prev) => [...prev, optimistic]);
-      setPendingImage(null);
 
       const supabase = createClient();
-      const { data, error } = await supabase
-        .from("messages")
-        .insert({ chat_id: chatId, sender_id: meId, image_url: url })
-        .select("id,sender_id,body,image_url,created_at,read_at,delivered_at")
-        .single();
+      const { data, error } = await supabase.rpc("send_chat_message", {
+        p_chat_id: chatId,
+        p_body: null,
+        p_image_url: url,
+      });
       if (error) throw new Error(error.message);
-      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? (data as Msg) : m)));
+
+      const result = (Array.isArray(data) ? data[0] : data) as
+        | { blocked?: boolean; warning?: string; message?: Msg }
+        | null;
+      if (result?.blocked) {
+        setBlocked(result.warning ?? "This message was not sent.");
+        setPendingImage(null);
+        setUploading(false);
+        return;
+      }
+
+      setPendingImage(null);
+      if (result?.message) {
+        const saved = result.message;
+        setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
+      }
     } catch (e: any) {
       setErr(e.message ?? "Could not send that image.");
     }
@@ -419,6 +443,16 @@ export function ChatThread({
         ))}
         <div ref={bottom} />
       </div>
+
+      {blocked && (
+        <div
+          role="alert"
+          className="mb-2 rounded-xl border border-amber-500/30 bg-amber-50 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900"
+        >
+          <p className="font-semibold">Message not sent</p>
+          <p className="mt-0.5">{blocked}</p>
+        </div>
+      )}
 
       {err && <p className="pb-1 text-[11.5px] font-medium text-red-600">{err}</p>}
 

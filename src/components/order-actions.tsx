@@ -81,7 +81,7 @@ export function ConfirmDelivery({ orderId, pickup }: { orderId: string; pickup: 
         Confirm you have the item{pickup ? " in hand" : ""}?
       </p>
       <p className="mt-1 text-[12px] leading-relaxed text-amber-900/80">
-        This releases the seller&apos;s money after 24 hours. You can&apos;t undo it — raise an issue instead if something is wrong.
+        This releases the seller&apos;s money after 4 days. You can&apos;t undo it — raise an issue instead if something is wrong.
       </p>
       {err && <p className="mt-1 text-[12px] font-medium text-red-600">{err}</p>}
       <div className="mt-2.5 flex gap-2">
