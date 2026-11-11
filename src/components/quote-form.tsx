@@ -76,12 +76,14 @@ export function QuoteForm({
 
     if (!chatErr && chatId) {
       await supabase.from("chats").update({ enquiry_id: enq.id }).eq("id", chatId);
-      await supabase.from("messages").insert({
-        chat_id: chatId,
-        sender_id: (await supabase.auth.getUser()).data.user!.id,
-        body: `Quote request: ${form.description.trim()}${
+      // Goes through the server-side guard (sql/0011) like every other
+      // message — a direct insert into `messages` is no longer allowed.
+      await supabase.rpc("send_chat_message", {
+        p_chat_id: chatId,
+        p_body: `Quote request: ${form.description.trim()}${
           form.budget_max ? `\nBudget: ${naira(form.budget_min || 0)} – ${naira(form.budget_max)}` : ""
         }${form.preferred_date ? `\nPreferred date: ${form.preferred_date}` : ""}`,
+        p_image_url: null,
       });
       setBusy(false);
       router.push(`/chats/${chatId}`);

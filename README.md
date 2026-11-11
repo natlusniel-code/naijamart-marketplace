@@ -359,6 +359,11 @@ re-running is safe for the schema and seed, and `create or replace` covers the f
 | 4 | `sql/0004_admin_helpers.sql` | Safety net / guard rail — **do not** define a second `public.is_admin()` (see the note in the file) |
 | 5 | `sql/0005_seed.sql` | Demo shops, listings, seller scores and one sample order. **Safe to re-run.** |
 | 6 | `sql/0006_storage.sql` | Creates the public `naijamart` storage bucket + its object policies |
+| 7 | `sql/0007_admin_bootstrap.sql` | Seeds the first admin into `admin_users` |
+| 8 | `sql/0008_shops_guard_service_role.sql` | Service-role guard on `shops` |
+| 9 | `sql/0009_chat_offers_location.sql` | Chats, offers, enquiries and the location columns |
+| 10 | `sql/0010_signup_role_and_email.sql` | Signup role + email handling |
+| 11 | `sql/0011_chat_guard_checkout_payout_accounts.sql` | **Chat guard** (`chat_block_rules`, `blocked_messages`, `send_chat_message`, `nm_check_message`), **checkout distance rule** (`place_order`, `checkout_range`), **4-day payout hold** (`payout_hold_days`), and **multiple payment accounts** (`payment_accounts`, `my_payment_account`, `admin_save_payment_account`) |
 
 ### Verify it worked
 
@@ -389,8 +394,8 @@ PASS  only the buyer can confirm delivery
 PASS  buyer confirms delivery
 PASS  delivery releases escrow to the seller
 PASS  a queued payout row was created
-PASS  payout locks for 24h after delivery
-PASS  payout blocked inside the 24h lock
+PASS  payout locks for 4 days after delivery
+PASS  payout blocked inside the 4-day lock
 PASS  seller can request payout once unlocked
 PASS  admin marks payout paid → payout + order agree
 PASS  buyer leaves a review
@@ -500,13 +505,15 @@ the rest are per-page `href`s.)
 | **Escrow: buyer → admin → seller** | `place_order` → `admin_verify_payment` → `confirm_delivery` | Money only moves to `released` on buyer confirmation (or admin dispute resolution) |
 | **Admin verifies the receipt, not the seller** | `admin_verify_payment(p_payment_id, p_approve, p_reason)` | Sets `status='paid'` and stamps `auto_cancel_at = now() + 24h` |
 | **Seller must accept within 24h or it auto-cancels** | `auto_cancel_at` + `run_order_timers()` | `seller_accept_order` / `seller_decline_order` (decline is **not** a cancellation — it cancels + restocks + logs a reason) |
-| **Confirm delivery starts a 24–48h payout clock** | `confirm_delivery()` | Creates a `payouts` row with `available_at = now() + 24h`; `request_payout` refuses anything before that |
+| **Confirm delivery starts a 4-day payout clock** | `confirm_delivery()` | Creates a `payouts` row with `available_at = now() + payout_hold_days` (4 days); `request_payout` refuses anything before that |
 | **Auto-confirm after 7 days** | `auto_confirm_at` + `run_order_timers()` | Stamped when the order ships / is ready for pickup |
-| **Buyers browse any city, order only in their own** | `place_order()` | Compares `profiles.city` with `shops.city` and raises a plain-English error |
+| **Buyers browse any city; ordering is distance-gated by order total** | `place_order()` | Over ₦20,000 (`platform_settings.cross_lga_min_total`) the buyer may order from any LGA in their own state; at or under it, only their own state **and** LGA. Raises a plain-English error, and `checkout_range()` reports the same verdict to the UI |
 | **Sellers list free; first ₦5,000 deducted from first payout** | `admin_verify_payment()` (subscription branch) + `first_payment_deducted` | If the shop has never paid, the first verified payout has the subscription taken out |
 | **Monthly renewal; listings auto-hide when it lapses** | `expire_subscriptions()` / listing status | Expiry flips `listings.status` to `hidden` |
 | **New sellers get a 30-day ranking boost** | `seller_scores.new_seller_boost_until` | Fields are collected from day one; ranking itself is deliberately simple |
 | **Every reject needs a reason and notifies** | `admin_verify_payment`, `admin_set_shop_status`, `seller_decline_order` | Reason is written to `reject_reason` / `review_note` / `decline_reason` and surfaced in the UI |
+| **Chat messages are filtered server-side** | `send_chat_message()` + `nm_check_message()` | The direct INSERT policy on `messages` is **dropped**, so the RPC is the only way to write a message. A blocked message is never inserted — it goes to `blocked_messages` (admin-only) and the sender gets the fixed warning. A `BEFORE INSERT` trigger is the second layer |
+| **Buyers are rotated across payment accounts** | `my_payment_account()` | Round-robin over active accounts (least recently assigned first), never the same account twice in a row while more than one is active. The account is stored on `orders.payment_account_id` and `payments.payment_account_id` at order creation — never chosen in the browser |
 
 ### Scheduled jobs (already scheduled)
 
@@ -641,7 +648,7 @@ update public.orders
    (shop details → verification → billing receipt) → approve the application in
    `/admin-fuckliving/sellers`.
 5. As the seller: **Accept order** → **Mark as shipped**.
-6. As the buyer: **Confirm delivery** → the payout queues with a 24h lock.
+6. As the buyer: **Confirm delivery** → the payout queues with a 4-day lock.
 7. As the seller: `/seller/payouts` shows it locked. Backdate it to test withdrawal:
    `update payouts set available_at = now() - interval '1 hour';` → **Request payout**.
 8. As the admin: `/admin-fuckliving/payouts` → **Mark as paid**.

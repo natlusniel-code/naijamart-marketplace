@@ -181,7 +181,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
               listing={{ id: l.id, title: l.title, price: Number(l.price), images: l.images ?? [] }}
               shop={{
                 id: shop.id, slug: shop.slug, name: shop.name, logo_url: shop.logo_url,
-                city: shop.city, delivery_fee: Number(shop.delivery_fee),
+                city: shop.city, state: shop.state, delivery_fee: Number(shop.delivery_fee),
                 free_delivery_threshold: shop.free_delivery_threshold ? Number(shop.free_delivery_threshold) : null,
                 pickup_available: shop.pickup_available,
               }}
@@ -204,7 +204,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
             listing={{ id: l.id, title: l.title, price: Number(l.price), images: l.images ?? [] }}
             shop={{
               id: shop.id, slug: shop.slug, name: shop.name, logo_url: shop.logo_url,
-              city: shop.city, delivery_fee: Number(shop.delivery_fee),
+              city: shop.city, state: shop.state, delivery_fee: Number(shop.delivery_fee),
               free_delivery_threshold: shop.free_delivery_threshold ? Number(shop.free_delivery_threshold) : null,
               pickup_available: shop.pickup_available,
             }}

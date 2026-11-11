@@ -118,14 +118,14 @@ export default async function OrderDetailPage({ params }: { params: { id: string
               <dt className="text-ink-500">Payout status</dt>
               <dd>
                 <Badge tone={o.payout_status === "paid" ? "green" : o.payout_status === "released" ? "blue" : "amber"}>
-                  {o.payout_status === "paid" ? "Paid out" : o.payout_status === "released" ? "Released — pays in 24–48h" : "Held in escrow"}
+                  {o.payout_status === "paid" ? "Paid out" : o.payout_status === "released" ? "Released — pays in 4 days" : "Held in escrow"}
                 </Badge>
               </dd>
             </div>
           </dl>
           <p className="mt-2 text-[11.5px] leading-relaxed text-ink-400">
             {isSeller
-              ? "We release this to you 24–48 hours after the buyer confirms. The 5% commission is already taken out."
+              ? "We release this to you 4 days after the buyer confirms. The 5% commission is already taken out."
               : "The seller only gets this after you confirm delivery. Until then it sits in NaijaMart's escrow account."}
           </p>
         </div>

@@ -60,7 +60,7 @@ export default async function SubscriptionPage() {
         <ul className="mt-3 space-y-1 text-[12.5px] text-ink-600">
           <li>✓ Unlimited products and services</li>
           <li>✓ Orders from buyers in your city</li>
-          <li>✓ Payouts within 24–48 hours of delivery</li>
+          <li>✓ Payouts 4 days after delivery</li>
           <li>✓ 5% commission per order, nothing else</li>
         </ul>
       </Card>

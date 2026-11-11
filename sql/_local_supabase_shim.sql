@@ -23,6 +23,17 @@ language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',
 create or replace function auth.jwt() returns jsonb
 language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb) $$;
 
+-- Supabase exposes auth.role() (the JWT `role` claim). The service-role
+-- guards in 0008/0010 call it, so the shim has to provide it too.
+create or replace function auth.role() returns text
+language sql stable as $$
+  select coalesce(
+    nullif(current_setting('request.jwt.claim.role', true), ''),
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb->>'role',
+    'authenticated'
+  )
+$$;
+
 -- Minimal storage shim: buckets + objects, enough for the policies we write.
 create table if not exists storage.buckets (
   id text primary key, name text, public boolean default false,

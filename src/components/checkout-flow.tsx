@@ -23,17 +23,20 @@ export function CheckoutFlow({
   signedIn,
   isBanned,
   profileCity,
-  settings,
+  profileState,
+  account,
   addresses,
 }: {
   signedIn: boolean;
   isBanned: boolean;
   profileCity: string | null;
-  settings: {
+  profileState: string | null;
+  account: {
     bank_name: string;
-    bank_account_number: string;
-    bank_account_name: string;
-  };
+    account_number: string;
+    account_name: string;
+    label: string | null;
+  } | null;
   addresses: SavedAddress[];
 }) {
   const router = useRouter();
@@ -46,6 +49,7 @@ export function CheckoutFlow({
   const [receipts, setReceipts] = useState<Record<string, File | null>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [agreed, setAgreed] = useState(false);
 
   useEffect(() => {
     setCart(readCart());
@@ -53,6 +57,10 @@ export function CheckoutFlow({
 
   const shops = useMemo(() => (cart ? Object.values(cart) : []), [cart]);
   const grand = shops.reduce((n, s) => n + shopSubtotal(s) + shopDelivery(s), 0);
+
+  // ₦20,000 is the cross-LGA threshold (platform_settings.cross_lga_min_total).
+  // The server enforces it in place_order(); this only mirrors the message.
+  const CROSS_LGA_MIN = 20000;
 
   if (!signedIn) {
     return (
@@ -80,11 +88,42 @@ export function CheckoutFlow({
     );
   }
 
-  const wrongCity = shops.filter((s) => profileCity && s.city && s.city.toLowerCase() !== profileCity.toLowerCase());
   const addressObj = addressesState.find((a) => a.id === chosenAddress);
   const addressText = addressObj
     ? `${addressObj.label}: ${addressObj.line1}, ${addressObj.city ?? ""} ${addressObj.state ?? ""}`.trim()
     : "";
+
+  /**
+   * Distance rule, mirrored from place_order() so the buyer sees the same
+   * message before submitting. The RPC is still the authority.
+   *   total >  ₦20,000 → any LGA, but inside the buyer's own state
+   *   total <= ₦20,000 → the buyer's own state AND LGA
+   */
+  function rangeProblem(shop: (typeof shops)[number]): string | null {
+    const total = shopSubtotal(shop) + shopDelivery(shop);
+    const sameState =
+      !profileState || !shop.state || shop.state.toLowerCase() === profileState.toLowerCase();
+    const sameLga =
+      !profileCity || !shop.city || shop.city.toLowerCase() === profileCity.toLowerCase();
+
+    if (total > CROSS_LGA_MIN) {
+      if (sameState) return null;
+      return `${shop.shopName} is in ${shop.state ?? "another state"}. Orders over ${naira(
+        CROSS_LGA_MIN
+      )} can be delivered to any LGA in your own state (${profileState ?? "your state"}), but not outside it.`;
+    }
+
+    if (sameState && sameLga) return null;
+    return `${shop.shopName} is in ${shop.city ?? shop.state ?? "another area"}, outside your LGA (${
+      profileCity ?? "not set"
+    }). Orders under ${naira(CROSS_LGA_MIN)} can only be placed with sellers in your own LGA — add more items to reach ${naira(
+      CROSS_LGA_MIN
+    )} and you can order from any LGA in ${profileState ?? "your"} state.`;
+  }
+
+  const outOfRange = shops
+    .map((s) => ({ shop: s, problem: rangeProblem(s) }))
+    .filter((r): r is { shop: (typeof shops)[number]; problem: string } => !!r.problem);
 
   async function saveAddress() {
     if (!newAddress.line1.trim()) return;
@@ -110,12 +149,12 @@ export function CheckoutFlow({
   }
 
   async function placeAll() {
-    if (!profileCity) {
-      setErr("Set your city in your profile first — you can only order inside your city.");
+    if (outOfRange.length) {
+      setErr(outOfRange[0].problem);
       return;
     }
-    if (wrongCity.length) {
-      setErr(`You can only order from sellers in ${profileCity}. Remove ${wrongCity.map((s) => s.shopName).join(", ")} from your cart or change your city.`);
+    if (!agreed) {
+      setErr("Please accept the NaijaMart Marketplace Policy and the payment terms to continue.");
       return;
     }
     for (const s of shops) {
@@ -263,15 +302,21 @@ export function CheckoutFlow({
                 <div className="flex justify-between pt-1 text-[14px]"><span className="font-bold text-ink-900">Transfer exactly</span><span className="font-extrabold text-ink-900">{naira(sub + fee)}</span></div>
               </div>
 
-              {/* bank details */}
+              {/* bank details — the account reserved for THIS buyer (sql/0011) */}
               <div className="mx-4 mb-3 rounded-xl border border-brand-500/25 bg-brand-50/60 p-3">
-                <p className="text-[12px] font-bold text-brand-900">Pay NaijaMart (admin escrow account)</p>
-                <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12.5px]">
-                  <dt className="text-brand-900/60">Bank</dt><dd className="font-semibold text-brand-900">{settings.bank_name}</dd>
-                  <dt className="text-brand-900/60">Account</dt><dd className="font-mono font-semibold tracking-wide text-brand-900">{settings.bank_account_number}</dd>
-                  <dt className="text-brand-900/60">Name</dt><dd className="font-semibold text-brand-900">{settings.bank_account_name}</dd>
-                  <dt className="text-brand-900/60">Amount</dt><dd className="font-semibold text-brand-900">{naira(sub + fee)}</dd>
-                </dl>
+                <p className="text-[12px] font-bold text-brand-900">Pay NaijaMart (escrow account)</p>
+                {account ? (
+                  <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12.5px]">
+                    <dt className="text-brand-900/60">Bank</dt><dd className="font-semibold text-brand-900">{account.bank_name}</dd>
+                    <dt className="text-brand-900/60">Account</dt><dd className="font-mono font-semibold tracking-wide text-brand-900">{account.account_number}</dd>
+                    <dt className="text-brand-900/60">Name</dt><dd className="font-semibold text-brand-900">{account.account_name}</dd>
+                    <dt className="text-brand-900/60">Amount</dt><dd className="font-semibold text-brand-900">{naira(sub + fee)}</dd>
+                  </dl>
+                ) : (
+                  <p className="mt-1.5 text-[12.5px] text-brand-900/80">
+                    No payment account is set up yet. Please contact support before transferring.
+                  </p>
+                )}
                 <p className="mt-1.5 text-[11.5px] leading-relaxed text-brand-900/70">
                   Transfer the exact amount, then upload your receipt below. Your reference is generated when the order is created.
                 </p>
@@ -310,25 +355,50 @@ export function CheckoutFlow({
           across {shops.length} {shops.length === 1 ? "shop" : "shops"} · held in escrow
         </p>
 
-        {wrongCity.length > 0 && (
-          <div className="mt-3">
-            <Alert tone="amber">
-              {wrongCity.map((s) => s.shopName).join(", ")} {wrongCity.length === 1 ? "is" : "are"} outside{" "}
-              {profileCity}. Buyers can only order inside their own city.
-            </Alert>
+        {outOfRange.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {outOfRange.map((r) => (
+              <Alert key={r.shop.shopId} tone="amber">
+                {r.problem}
+              </Alert>
+            ))}
           </div>
         )}
 
         {err && <div className="mt-3"><Alert tone="red">{err}</Alert></div>}
 
-        <button onClick={placeAll} disabled={busy || isBanned} className="nm-btn-primary mt-4 w-full !py-3">
+        {/* terms acknowledgement — required before the order can be placed */}
+        <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-xl border border-[var(--line)] p-3">
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--brand-600)]"
+          />
+          <span className="text-[11.5px] leading-relaxed text-ink-600">
+            I have read and accept the{" "}
+            <Link href="/legal" className="font-semibold text-brand-600 underline">
+              NaijaMart Marketplace Policy
+            </Link>
+            , including the Buyer Policy, Payments and Escrow, and Orders, Delivery, Cancellation and
+            Returns sections. I confirm the details of this order are correct and that I will keep
+            payment and communication inside the platform.
+          </span>
+        </label>
+
+        <button
+          onClick={placeAll}
+          disabled={busy || isBanned || outOfRange.length > 0 || !agreed}
+          className="nm-btn-primary mt-3 w-full !py-3 disabled:opacity-50"
+        >
           {busy ? <><Spinner /> Placing order…</> : "I have paid — submit order"}
         </button>
 
         <ul className="mt-3 space-y-1.5 text-[11.5px] leading-relaxed text-ink-500">
           <li>• We verify your receipt, usually within a few hours.</li>
           <li>• The seller must accept within 24 hours or you&apos;re refunded.</li>
-          <li>• Money is released only after you confirm delivery.</li>
+          <li>• Money is released to the seller 4 days after you confirm delivery.</li>
+          <li>• Orders over ₦20,000 can come from any LGA in your state; under that, your own LGA only.</li>
         </ul>
       </div>
     </div>

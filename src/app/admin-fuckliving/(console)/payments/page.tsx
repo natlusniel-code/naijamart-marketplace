@@ -13,7 +13,7 @@ export default async function AdminPaymentsPage() {
   const [{ data: pending }, { data: recent }] = await Promise.all([
     supabase
       .from("payments")
-      .select("*, orders(reference,total,status), shops(name,slug)")
+      .select("*, orders(reference,total,status), shops(name,slug), payment_accounts(bank_name,account_number,account_name)")
       .eq("status", "pending")
       .order("created_at", { ascending: true }),
     supabase
@@ -52,6 +52,20 @@ export default async function AdminPaymentsPage() {
                     <p className="text-[13px] font-semibold text-ink-900">{p.shops?.name ?? "—"}</p>
                     <p className="text-[11.5px] text-ink-400">
                       {naira(p.amount)} · uploaded {shortDate(p.created_at)}
+                    </p>
+                    {/* which account this order was told to pay into (sql/0011) */}
+                    <p className="mt-1 text-[11.5px] text-ink-500">
+                      {p.payment_accounts ? (
+                        <>
+                          Paid into{" "}
+                          <span className="font-semibold text-ink-700">
+                            {p.payment_accounts.bank_name} · {p.payment_accounts.account_number}
+                          </span>{" "}
+                          <span className="text-ink-400">({p.payment_accounts.account_name})</span>
+                        </>
+                      ) : (
+                        <span className="text-amber-700">No account recorded on this order</span>
+                      )}
                     </p>
                   </div>
                   <ReceiptReview

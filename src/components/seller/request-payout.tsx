@@ -19,7 +19,7 @@ export function RequestPayout({ shopId, amount }: { shopId: string; amount: numb
     const { data, error } = await supabase.rpc("request_payout", { p_shop_id: shopId });
     setBusy(false);
     if (error) { setErr(error.message); return; }
-    setOk(`Requested ${naira(Number(data))}. We'll process it within 24–48 hours.`);
+    setOk(`Requested ${naira(Number(data))}. We'll process it within 4 days.`);
     router.refresh();
   }
 
@@ -32,7 +32,7 @@ export function RequestPayout({ shopId, amount }: { shopId: string; amount: numb
       </button>
       {amount <= 0 && (
         <p className="mt-1.5 text-center text-[11.5px] text-brand-900/60">
-          Your balance unlocks 24 hours after a buyer confirms delivery.
+          Your balance unlocks 4 days after a buyer confirms delivery.
         </p>
       )}
       {err && <p className="mt-1.5 text-[12px] font-medium text-red-600">{err}</p>}

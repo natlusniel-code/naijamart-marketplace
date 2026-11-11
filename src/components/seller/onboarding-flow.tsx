@@ -324,7 +324,7 @@ export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionP
             <ul className="mt-2 space-y-1 text-[12.5px] text-brand-900/80">
               <li>✓ List unlimited products and services</li>
               <li>✓ Receive orders from buyers in your city</li>
-              <li>✓ Get paid within 24–48 hours of delivery</li>
+              <li>✓ Get paid 4 days after delivery</li>
               <li>✓ 5% commission per order — nothing else</li>
             </ul>
           </div>
