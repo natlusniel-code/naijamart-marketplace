@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { NIGERIA_STATES, lgasFor, slugify, cn } from "@/lib/utils";
+import { supportWhatsAppUrl } from "@/lib/support";
 import { Spinner, Alert, Card, Badge } from "@/components/ui";
 
 type Props = {
@@ -393,7 +394,7 @@ export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionP
 
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
             <a
-              href={`https://wa.me/2348012345678?text=${encodeURIComponent("Hi, I just submitted my NaijaMart seller application.")}`}
+              href={supportWhatsAppUrl("Hi, I just submitted my NaijaMart seller application.")}
               target="_blank" rel="noreferrer" className="nm-btn-ghost"
             >
               Contact support on WhatsApp

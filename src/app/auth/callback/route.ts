@@ -86,6 +86,33 @@ export async function GET(request: Request) {
 
   // A seller who just confirmed should continue their shop setup; a buyer goes
   // where they were headed (or home).
-  const dest = role === "seller" ? "/seller/onboarding" : next;
-  return NextResponse.redirect(`${origin}${dest}`);
+  //
+  // `next` is only honoured when the caller actually supplied one — the
+  // sign-in form no longer defaults it to "/", so an empty value here means
+  // "no preference" and the seller check below decides.
+  if (role === "seller") {
+    return NextResponse.redirect(`${origin}/seller/onboarding`);
+  }
+
+  if (next !== "/") {
+    return NextResponse.redirect(`${origin}${next}`);
+  }
+
+  // No explicit destination: sellers belong in the Seller Hub, buyers on the
+  // storefront. Asked of the database, not of a role claim, so an existing
+  // seller signing in with Google lands in the right place.
+  if (user) {
+    const { data: shop } = await supabase
+      .from("shops")
+      .select("id,status")
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    if (shop) {
+      return NextResponse.redirect(
+        `${origin}${shop.status === "draft" ? "/seller/onboarding" : "/seller"}`,
+      );
+    }
+  }
+
+  return NextResponse.redirect(`${origin}/`);
 }

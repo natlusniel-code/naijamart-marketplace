@@ -7,6 +7,7 @@ import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { readCart, writeCart, clearCart, shopSubtotal, shopDelivery, type Cart } from "@/lib/cart";
 import { naira } from "@/lib/utils";
 import { Spinner, Alert, Badge } from "@/components/ui";
+import { SupportLink } from "@/components/support-link";
 
 type SavedAddress = {
   id: string;
@@ -170,7 +171,8 @@ export function CheckoutFlow({
       <div className="space-y-4">
         {isBanned && (
           <Alert tone="red" title="This account is suspended">
-            You can browse, but you can&apos;t place orders. Contact support on WhatsApp to resolve it.
+            You can browse, but you can&apos;t place orders.{" "}
+            <SupportLink className="!text-red-700">Contact support on WhatsApp</SupportLink> to resolve it.
           </Alert>
         )}
 

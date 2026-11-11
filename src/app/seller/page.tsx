@@ -74,10 +74,19 @@ export default async function SellerDashboard() {
             {shop.verified && <Badge tone="green">Verified</Badge>}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge tone={subActive ? "green" : "red"} dot>
             {subActive ? `Active · renews ${shortDate(shop.subscription_expires_at)}` : "Subscription inactive"}
           </Badge>
+          {/* The switch back to the storefront. Sellers land here after signing
+              in, so this is the way out to the public marketplace and to their
+              own public shop page. */}
+          <Link href="/" className="nm-btn-ghost !px-3 !py-1.5 !text-[12.5px]">
+            ← Storefront
+          </Link>
+          <Link href={`/shop/${shop.slug}`} className="nm-btn-primary !px-3 !py-1.5 !text-[12.5px]">
+            View my shop ↗
+          </Link>
         </div>
       </div>
 

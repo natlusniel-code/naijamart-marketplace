@@ -3,6 +3,7 @@ import { getSession } from "@/lib/supabase/server";
 import { createClient } from "@/lib/supabase/server";
 import { Logo, Avatar } from "@/components/ui";
 import { TabBar } from "@/components/tab-bar";
+import { SiteFooter } from "@/components/site-footer";
 
 export default async function ShopLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -58,6 +59,8 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
       </header>
 
       <main className="mx-auto w-full max-w-7xl px-4 pb-24 pt-3 md:pb-10">{children}</main>
+
+      <SiteFooter />
 
       <TabBar unread={unread} />
     </div>

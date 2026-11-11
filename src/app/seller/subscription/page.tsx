@@ -4,6 +4,7 @@ import { getSettings } from "@/lib/queries";
 import { naira, shortDate } from "@/lib/utils";
 import { Card, Badge, Alert, Stat } from "@/components/ui";
 import { SubscriptionReceipt } from "@/components/seller/subscription-receipt";
+import { SupportLink } from "@/components/support-link";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Subscription" };
@@ -66,7 +67,7 @@ export default async function SubscriptionPage() {
 
       {latest && latest.status === "rejected" && (
         <Alert tone="red" title="Your last payment was rejected">
-          {latest.reject_reason ?? "We couldn't match your transfer."} Please re-upload the receipt or contact support.
+          {latest.reject_reason ?? "We couldn't match your transfer."} Please re-upload the receipt or <SupportLink className="!text-red-700">contact support</SupportLink>.
         </Alert>
       )}
 
@@ -91,7 +92,7 @@ export default async function SubscriptionPage() {
         </div>
 
         <p className="mt-2.5 rounded-xl bg-brand-50 px-3 py-2 text-[11.5px] leading-relaxed text-brand-900">
-          New seller? Your first {naira(price)} can be taken from your first payout instead of paying now — tell support on WhatsApp after your first sale.
+          New seller? Your first {naira(price)} can be taken from your first payout instead of paying now — <SupportLink className="!text-brand-700">tell support on WhatsApp</SupportLink> after your first sale.
         </p>
 
         <div className="mt-3">

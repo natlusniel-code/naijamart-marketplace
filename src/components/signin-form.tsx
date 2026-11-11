@@ -11,7 +11,10 @@ import { GoogleButton } from "@/components/google-button";
 export function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/";
+  // Only an EXPLICIT ?next= is forwarded to OAuth. Defaulting it to "/" would
+  // make the callback treat the storefront as a deliberate destination and
+  // skip the seller-hub routing below.
+  const next = params.get("next") ?? "";
 
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
@@ -62,7 +65,28 @@ export function SignInForm() {
       }
       return;
     }
-    router.push(next);
+    // Sellers land in the Seller Hub, buyers on the storefront. The check is
+    // a real query against `shops` (RLS lets an owner read their own row), not
+    // a role claim — so a seller whose metadata was never written still routes
+    // correctly. An explicit `?next=` always wins.
+    const explicitNext = params.get("next");
+    let dest = explicitNext && explicitNext.startsWith("/") && !explicitNext.startsWith("//") ? explicitNext : null;
+
+    if (!dest) {
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth?.user) {
+        const { data: shop } = await supabase
+          .from("shops")
+          .select("id,status")
+          .eq("owner_id", auth.user.id)
+          .maybeSingle();
+        dest = shop ? (shop.status === "draft" ? "/seller/onboarding" : "/seller") : "/";
+      } else {
+        dest = "/";
+      }
+    }
+
+    router.push(dest);
     router.refresh();
   }
 
@@ -127,7 +151,7 @@ export function SignInForm() {
         </button>
 
         <GoogleButton
-          redirectTo={`/auth/callback?next=${encodeURIComponent(next)}`}
+          redirectTo={`/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ""}`}
           onError={setErr}
         />
       </form>

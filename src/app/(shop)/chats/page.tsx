@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSession, createClient } from "@/lib/supabase/server";
 import { relTime, naira } from "@/lib/utils";
 import { Avatar, EmptyState, Badge } from "@/components/ui";
+import { SupportLink } from "@/components/support-link";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Chats" };
@@ -94,6 +95,10 @@ export default async function ChatsPage() {
           );
         })}
       </div>
+
+      <p className="mt-4 text-center text-[12.5px] text-ink-500">
+        Something wrong with a chat? <SupportLink>Contact support</SupportLink>
+      </p>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { naira, shortDate, ORDER_STATUS, ORDER_STEPS, stepIndexFor, cn } from "@
 import { Badge, Card, Alert } from "@/components/ui";
 import { UploadReceipt, ConfirmDelivery, RaiseIssue, LeaveReview } from "@/components/order-actions";
 import { ChatWithSeller } from "@/components/chat-with-seller";
+import { supportWhatsAppUrl } from "@/lib/support";
 
 export const dynamic = "force-dynamic";
 
@@ -182,7 +183,7 @@ export default async function OrderDetailPage({ params }: { params: { id: string
               <RaiseIssue orderId={o.id} />
             )}
             <a
-              href={`https://wa.me/${settings.support_whatsapp}?text=${encodeURIComponent(`Support for order ${o.reference}`)}`}
+              href={supportWhatsAppUrl(`Support for order ${o.reference}`)}
               target="_blank"
               rel="noreferrer"
               className="nm-btn-ghost w-full !py-2.5 !text-[13px]"

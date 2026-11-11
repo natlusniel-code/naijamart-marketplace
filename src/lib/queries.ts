@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import type { SessionProfile } from "@/lib/supabase/server";
+import { SUPPORT_WHATSAPP } from "@/lib/support";
 
 export type Listing = {
   id: string;
@@ -71,7 +72,7 @@ export async function getSettings() {
       bank_name: "SmartCash",
       bank_account_number: "9111356510",
       bank_account_name: "Anifowose Mutiu Ayinde",
-      support_whatsapp: "2348012345678",
+      support_whatsapp: SUPPORT_WHATSAPP,
       terms_text: "",
     }
   );
