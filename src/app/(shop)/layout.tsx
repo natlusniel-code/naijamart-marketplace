@@ -6,6 +6,7 @@ import { TabBar } from "@/components/tab-bar";
 import { CartFab } from "@/components/cart-fab";
 import { SiteFooter } from "@/components/site-footer";
 import { NotificationBell } from "@/components/notification-bell";
+import { InstallAppPrompt } from "@/components/install-app-prompt";
 
 export default async function ShopLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -75,6 +76,11 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
           mobile tab bar. Rendered once here so it is available on every shop
           page instead of only the home page. */}
       <CartFab />
+
+      {/* "Install app" toast — only for a signed-in user, and only when the
+          browser can actually install the app. It sits above the mobile tab
+          bar and never blocks the page. See install-app-prompt.tsx. */}
+      {session && <InstallAppPrompt />}
 
       <TabBar unread={unread} />
     </div>

@@ -5,6 +5,7 @@ import { sellerGatePath } from "@/lib/seller-gate";
 import { isBuyerAccount } from "@/lib/roles";
 import { Logo, Badge, Avatar } from "@/components/ui";
 import { SellerNav } from "@/components/seller/seller-nav";
+import { InstallAppPrompt } from "@/components/install-app-prompt";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export default async function SellerLayout({ children }: { children: React.React
   const session = await getSession();
   if (!session) redirect("/signin?next=%2Fseller");
 
-  // ── Buyers never see the Seller Hub ──────────────────────────────────
+  // ── Buyers never see the Seller Hub ──────────────────────────────────────
   // The hub is seller-only. A buyer account can still own a `shops` row (an
   // earlier shop, a re-assigned or seeded row), and the approval gate below
   // would then let them straight into the seller dashboard and its account
@@ -25,7 +26,7 @@ export default async function SellerLayout({ children }: { children: React.React
   // role read.
   if (isBuyerAccount(session.profile, session.shop)) redirect("/");
 
-  // ── The approval gate ────────────────────────────────────────────────
+  // ── The approval gate ────────────────────────────────────────────────────
   // Every seller-only page lives under this layout, so this one check is what
   // keeps an unapproved seller out of the hub. They are sent back to the exact
   // step they are on (business profile → verification → plan → pending
@@ -69,6 +70,10 @@ export default async function SellerLayout({ children }: { children: React.React
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-4 pb-16">{children}</main>
+
+      {/* Sellers get the same "Install app" offer as buyers — the request was
+          for every signed-in user, not only the storefront. */}
+      <InstallAppPrompt />
     </div>
   );
 }

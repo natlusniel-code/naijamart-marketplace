@@ -5,6 +5,7 @@ import { getCategories, getSettings } from "@/lib/queries";
 import { onboardingStepFor, isApprovedSeller } from "@/lib/seller-gate";
 import { OnboardingFlow } from "@/components/seller/onboarding-flow";
 import { Logo, Avatar } from "@/components/ui";
+import { InstallAppPrompt } from "@/components/install-app-prompt";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Seller onboarding" };
@@ -72,6 +73,10 @@ export default async function OnboardingPage({
           initial={{ city: session?.profile.city ?? "Abeokuta South", state: session?.profile.state ?? "Ogun" }}
         />
       </main>
+
+      {/* A seller mid-onboarding is signed in, so they get the install offer
+          too — it sits at the bottom and never blocks the form. */}
+      {session && <InstallAppPrompt />}
     </div>
   );
 }

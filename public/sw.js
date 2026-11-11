@@ -13,8 +13,12 @@
  *      raises a real OS notification. Without this, an in-app toast is all a
  *      buyer gets, which is exactly what was asked to be improved on.
  *
- * Deliberately no caching / offline logic: this worker exists for
- * notifications only, and a half-done cache is worse than none.
+ * ── Why there is a `fetch` handler that does nothing ──────────────────────
+ * Chrome will not treat a site as installable unless its service worker
+ * handles `fetch`. This worker has no cache and no offline story, so the
+ * handler simply steps aside and lets the network serve every request. It
+ * exists to satisfy the installability check, not to intercept anything —
+ * adding a real cache here would be a separate, deliberate decision.
  */
 
 self.addEventListener("install", () => {
@@ -24,6 +28,15 @@ self.addEventListener("install", () => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
+});
+
+/**
+ * Required for installability. No caching: every request goes to the network
+ * exactly as it would without a worker. Returning without calling
+ * `respondWith` is the correct way to say "not my business".
+ */
+self.addEventListener("fetch", () => {
+  /* network handles it */
 });
 
 /** Show a notification, tolerating a payload that is missing fields. */
