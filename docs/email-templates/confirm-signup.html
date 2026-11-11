@@ -1,0 +1,115 @@
+<!--
+  NaijaMart — Supabase "Confirm signup" email template.
+
+  WHERE TO PASTE IT
+  -----------------
+  Supabase dashboard → Authentication → Emails → Templates → "Confirm signup".
+  Paste the WHOLE block below (everything from <!DOCTYPE html> to </html>) into
+  the "Message body (HTML)" box, then Save. Leave the Subject line as
+  "Confirm your email address" (or set it to "Welcome to NaijaMart — confirm your email").
+
+  NOTES
+  -----
+  * {{ .ConfirmationURL }} is the only variable used. It is the link Supabase
+    builds from the project's Site URL + the emailRedirectTo the app sends
+    (…/auth/callback?role=…), so it lands the user back in the live app.
+  * Table-based layout + inline styles only — no <style> block, no external CSS,
+    no web fonts — so it renders correctly in Gmail (web + mobile) and Outlook.
+  * Max width 600px, single column, 16px+ body text, 44px+ tap target on the
+    button: mobile-friendly.
+-->
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="color-scheme" content="light" />
+    <title>Welcome to NaijaMart</title>
+  </head>
+  <body style="margin:0; padding:0; background-color:#f4f6f5; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
+    <!-- Preheader: shown in the inbox preview, hidden in the body. -->
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:#f4f6f5; font-size:1px; line-height:1px;">
+      Welcome to NaijaMart — one tap to confirm your email and start shopping.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f6f5;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:600px; background-color:#ffffff; border-radius:16px; overflow:hidden;">
+
+            <!-- Brand bar -->
+            <tr>
+              <td style="background-color:#0f9d58; padding:20px 28px;">
+                <span style="font-family:Arial, Helvetica, sans-serif; font-size:20px; font-weight:bold; color:#ffffff; letter-spacing:0.2px;">
+                  NaijaMart
+                </span>
+              </td>
+            </tr>
+
+            <!-- Body -->
+            <tr>
+              <td style="padding:32px 28px 8px 28px; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
+                <h1 style="margin:0 0 14px 0; font-size:22px; line-height:1.3; font-weight:bold; color:#111827;">
+                  Welcome to NaijaMart! 🎉
+                </h1>
+
+                <p style="margin:0 0 14px 0; font-size:16px; line-height:1.6; color:#374151;">
+                  Hi there — we're glad you're here. You're one tap away from your account.
+                </p>
+
+                <p style="margin:0 0 24px 0; font-size:16px; line-height:1.6; color:#374151;">
+                  Just click the button below to confirm your email address and finish setting up.
+                </p>
+
+                <!-- Button (bulletproof: table + inline styles) -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+                  <tr>
+                    <td align="center" bgcolor="#0f9d58" style="border-radius:10px;">
+                      <a href="{{ .ConfirmationURL }}"
+                         style="display:inline-block; padding:14px 32px; font-family:Arial, Helvetica, sans-serif; font-size:16px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:10px;">
+                        Confirm my email
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 8px 0; font-size:13px; line-height:1.6; color:#6b7280;">
+                  Button not working? Copy and paste this link into your browser:
+                </p>
+                <p style="margin:0 0 24px 0; font-size:13px; line-height:1.6; word-break:break-all;">
+                  <a href="{{ .ConfirmationURL }}" style="color:#0f9d58; text-decoration:underline;">{{ .ConfirmationURL }}</a>
+                </p>
+
+                <p style="margin:0 0 4px 0; font-size:16px; line-height:1.6; color:#374151;">
+                  Happy shopping,
+                </p>
+                <p style="margin:0 0 24px 0; font-size:16px; line-height:1.6; color:#374151;">
+                  The NaijaMart team
+                </p>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="padding:0 28px 28px 28px; font-family:Arial, Helvetica, sans-serif;">
+                <hr style="border:none; border-top:1px solid #e5e7eb; margin:0 0 16px 0;" />
+                <p style="margin:0; font-size:12px; line-height:1.6; color:#9ca3af;">
+                  You're receiving this because someone signed up for NaijaMart with this email address.
+                  If that wasn't you, you can safely ignore this message.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+
+          <p style="margin:16px 0 0 0; font-family:Arial, Helvetica, sans-serif; font-size:11px; color:#9ca3af;">
+            NaijaMart — buy and sell across Nigeria.
+          </p>
+
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

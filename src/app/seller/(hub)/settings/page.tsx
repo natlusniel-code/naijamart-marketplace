@@ -25,7 +25,7 @@ export default async function ShopSettingsPage() {
   const h = headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
-  const origin = host ? `${proto}://${host}` : "https://naijamart-marketplace-n.vercel.app";
+  const origin = host ? `${proto}://${host}` : "https://naijamart-marketplace-opal.vercel.app";
   const shopUrl = `${origin}/shop/${shop.slug}`;
 
   return (
