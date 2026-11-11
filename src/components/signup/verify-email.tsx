@@ -25,7 +25,15 @@ const COOLDOWN = 45;
  * If you switch the template to a code, also switch this component to
  * `supabase.auth.verifyOtp({ email, token, type: "signup" })` — see README §1a.
  */
-export function VerifyEmail({ email, role }: { email: string; role: string }) {
+export function VerifyEmail({
+  email,
+  role,
+  limited = false,
+}: {
+  email: string;
+  role: string;
+  limited?: boolean;
+}) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [resent, setResent] = useState(false);
@@ -84,6 +92,13 @@ export function VerifyEmail({ email, role }: { email: string; role: string }) {
       <p className="mx-auto mt-3 max-w-[330px] text-[12.5px] leading-relaxed text-ink-400">
         The link works once and expires after an hour. Open it in this browser so you land back in NaijaMart.
       </p>
+
+      {limited && !err && !resent && (
+        <p className="mx-auto mt-4 max-w-[330px] text-[12.5px] leading-relaxed text-amber-700" role="status">
+          Your account was created, but the mailer hit its hourly limit, so the email may not have gone
+          out yet. Use the resend button below in a little while.
+        </p>
+      )}
 
       {err && (
         <p className="mt-4 text-[12.5px] font-medium text-red-600" role="alert">

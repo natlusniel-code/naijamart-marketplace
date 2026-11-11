@@ -18,7 +18,7 @@ type Props = {
   initial?: Partial<{ name: string; city: string; state: string }>;
 };
 
-const STEP_LABELS = ["Shop details", "Verification", "Billing", "Review"];
+const STEP_LABELS = ["Business profile", "Verification", "Plan", "Review"];
 
 export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionPrice, bank }: Props) {
   const router = useRouter();
@@ -181,7 +181,7 @@ export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionP
 
       {step === 1 && (
         <Card className="p-4">
-          <h1 className="text-[19px] font-extrabold tracking-tight text-ink-900">Shop details</h1>
+          <h1 className="text-[19px] font-extrabold tracking-tight text-ink-900">Business profile</h1>
           <p className="mt-1 text-[13px] text-ink-500">This is what buyers see. You can change it later.</p>
 
           <div className="mt-4 space-y-3">
@@ -313,7 +313,7 @@ export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionP
 
       {step === 3 && (
         <Card className="p-4">
-          <h1 className="text-[19px] font-extrabold tracking-tight text-ink-900">Billing</h1>
+          <h1 className="text-[19px] font-extrabold tracking-tight text-ink-900">Choose your plan</h1>
           <p className="mt-1 text-[13px] text-ink-500">One subscription covers unlimited listings.</p>
 
           <div className="mt-3 rounded-2xl border border-brand-500/25 bg-brand-50/60 p-4">

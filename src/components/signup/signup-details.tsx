@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { postAuthDestination } from "@/lib/post-auth";
 import { NIGERIA_STATES, lgasFor, cn } from "@/lib/utils";
 import { Spinner, Alert } from "@/components/ui";
 import { GoogleButton } from "@/components/google-button";
@@ -60,32 +62,38 @@ export function SignupDetails({ initialRole }: Props) {
     if (!validate()) return;
     setBusy(true);
     setErrors({});
-    // ── Why a server route instead of supabase.auth.signUp() ─────────────────
+
+    // ── Standard Supabase signup ─────────────────────────────────────────────
     //
-    // `signUp()` sends the confirmation email INSIDE the request. With the
-    // built-in mailer that is capped at 2/hour, and when the mailer is broken
-    // the whole call 500s and no account is created — the original bug.
+    // `auth.signUp()` is the ONLY signup path. With `mailer_autoconfirm = false`
+    // Supabase itself creates the unconfirmed user and dispatches the
+    // confirmation email from its built-in mailer — no custom route, no
+    // Resend/SendGrid HTTP call, no service-role key in the signup path.
     //
-    // /api/auth/signup creates the account with no mail in the path, mints the
-    // confirmation link, and delivers it through a real provider (Resend /
-    // SendGrid) when one is configured. So signup cannot fail on a mail error
-    // and is not rate-limited to two users an hour.
-    let res: Response;
+    // The role travels in `options.data` so the `handle_new_user()` trigger
+    // writes it to `public.profiles`, and `emailRedirectTo` points at
+    // /auth/callback so the confirmation link lands the user back in the app
+    // (sellers → /seller/onboarding).
+    const supabase = createClient();
+
+    let result: Awaited<ReturnType<typeof supabase.auth.signUp>>;
     try {
-      res = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: form.email.trim(),
-          password: form.password,
-          full_name: form.full_name.trim(),
-          phone: form.phone.replace(/\s/g, ""),
-          state: form.state,
-          city: form.city,
-          role,
-        }),
+      result = await supabase.auth.signUp({
+        email: form.email.trim(),
+        password: form.password,
+        options: {
+          data: {
+            full_name: form.full_name.trim(),
+            phone: form.phone.replace(/\s/g, ""),
+            state: form.state,
+            city: form.city,
+            role,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback?role=${role}`,
+        },
       });
     } catch {
+      // A thrown error here is a network/DNS failure, not a mail failure.
       setBusy(false);
       setErrors({
         form: "We couldn't reach the server. Check your connection and try again.",
@@ -93,59 +101,79 @@ export function SignupDetails({ initialRole }: Props) {
       return;
     }
 
-    const payload = (await res.json().catch(() => ({}))) as {
-      status?: string;
-      error?: string;
-      detail?: string;
-    };
+    const { data, error } = result;
 
-    if (!res.ok) {
+    if (error) {
       setBusy(false);
-      switch (payload.error) {
-        case "email_taken":
-          setErrors({ email: "That email is already registered. Try signing in." });
-          break;
-        case "weak_password":
-          setErrors({ password: "That password is too weak. Try a longer one." });
-          break;
-        case "invalid_email":
-          setErrors({ email: "Enter a valid email address." });
-          break;
-        case "invalid_phone":
-          setErrors({ phone: "Use 11 digits, like 08012345678." });
-          break;
-        case "invalid_name":
-          setErrors({ full_name: "Enter your full name." });
-          break;
-        case "email_failed":
-          // The account was created but the confirmation could not be sent.
-          // Say so honestly — the user must not be told to check an inbox that
-          // will stay empty — and point them at the resend screen, which will
-          // work once the mailer recovers.
-          setErrors({
-            form:
-              "Your account was created, but we couldn't send the confirmation email just now. This is on our side, not yours — please try the resend button in a minute, or contact support.",
-          });
-          break;
-        case "server_misconfigured":
-          setErrors({
-            form:
-              "Sign-up is temporarily unavailable because of a configuration problem on our side. Please contact support — this is not something you can fix by retrying.",
-          });
-          break;
-        default:
-          setErrors({
-            form: "We couldn't create your account just now. Please try again in a moment.",
-          });
+      const msg = error.message.toLowerCase();
+      const code = (error as { code?: string }).code ?? "";
+
+      if (
+        code === "user_already_exists" ||
+        code === "email_exists" ||
+        msg.includes("already") ||
+        msg.includes("registered") ||
+        msg.includes("exists")
+      ) {
+        setErrors({ email: "That email is already registered. Try signing in." });
+      } else if (code === "weak_password" || msg.includes("password")) {
+        setErrors({ password: "That password is too weak. Try a longer one." });
+      } else if (code === "email_address_invalid" || msg.includes("invalid email")) {
+        setErrors({ email: "Enter a valid email address." });
+      } else if (
+        code === "over_email_send_rate_limit" ||
+        msg.includes("rate limit") ||
+        msg.includes("too many")
+      ) {
+        // The built-in mailer's hourly cap. Supabase has already created the
+        // unconfirmed account, so the user is not stuck: send them to the
+        // verify screen, where the resend button will work once the window
+        // rolls over. Telling them to "try again" on this form would just
+        // create a duplicate-email error.
+        router.push(
+          `/signup/verify?email=${encodeURIComponent(form.email.trim())}&role=${role}&limited=1`,
+        );
+        return;
+      } else if (
+        msg.includes("confirmation email") ||
+        msg.includes("sending email") ||
+        msg.includes("error sending")
+      ) {
+        // Supabase's mailer rejected the send. This is a server-side problem,
+        // not something the user can fix by retyping — say so plainly instead
+        // of surfacing a raw 500.
+        setErrors({
+          form:
+            "We couldn't send your confirmation email just now. This is on our side, not yours — please try again in a minute, or contact support and we'll finish setting up your account.",
+        });
+      } else {
+        setErrors({ form: error.message });
       }
       return;
     }
 
-    // ── Success: the account exists and a confirmation link is on its way ────
+    // Supabase returns a user with an empty `identities` array when the address
+    // is already registered (it does not error, to avoid leaking accounts).
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setBusy(false);
+      setErrors({ email: "That email is already registered. Try signing in." });
+      return;
+    }
+
+    // ── Two legitimate outcomes ──────────────────────────────────────────────
     //
-    // This is the NORMAL path with email confirmation enabled. It is not a dead
-    // end: the resend button on /signup/verify works, and the role is carried
-    // through so a seller lands in onboarding after confirming.
+    // 1. A session came back — `mailer_autoconfirm` is on, or the address was
+    //    already confirmed. The user is signed in, so route by role.
+    // 2. No session — email confirmation is required. The account exists and
+    //    Supabase has dispatched the confirmation email. This is the NORMAL
+    //    path: show the "check your email" screen.
+    if (data.session) {
+      const dest = await postAuthDestination(supabase, data.user!.id, null, role);
+      router.push(dest);
+      router.refresh();
+      return;
+    }
+
     router.push(
       `/signup/verify?email=${encodeURIComponent(form.email.trim())}&role=${role}`,
     );

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { sellerGatePath } from "@/lib/seller-gate";
 
 /**
  * OAuth + email-confirmation landing point.
@@ -84,14 +85,32 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/admin-fuckliving`);
   }
 
-  // A seller who just confirmed should continue their shop setup; a buyer goes
-  // where they were headed (or home).
+  // A seller who just confirmed must continue their shop setup — business
+  // profile first, then the plan, then the approval wait. They must NOT land in
+  // the Seller Hub: that is only for an admin-approved shop.
   //
-  // `next` is only honoured when the caller actually supplied one — the
-  // sign-in form no longer defaults it to "/", so an empty value here means
-  // "no preference" and the seller check below decides.
+  // The gate is asked of the shop row, not of the `role` query string, so this
+  // also holds for a seller who confirms on a different device, or who signs in
+  // again before approval. `role=seller` is only the fallback for a seller who
+  // has no shop row yet (i.e. they have not created the business profile).
+  if (user) {
+    const { data: shop } = await supabase
+      .from("shops")
+      .select("id,status,subscription_status,bank_account_number")
+      .eq("owner_id", user.id)
+      .maybeSingle();
+
+    const gate = sellerGatePath(shop);
+    if (gate) {
+      // Approved sellers get `null` and fall through to the normal routing.
+      if (shop || role === "seller") {
+        return NextResponse.redirect(`${origin}${gate}`);
+      }
+    }
+  }
+
   if (role === "seller") {
-    return NextResponse.redirect(`${origin}/seller/onboarding`);
+    return NextResponse.redirect(`${origin}/seller/onboarding?step=1`);
   }
 
   if (next !== "/") {

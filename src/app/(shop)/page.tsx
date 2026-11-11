@@ -12,7 +12,6 @@ import {
 import { ListingCard, ShopCard, placeLabel } from "@/components/cards";
 import { LocationFilter } from "@/components/location-filter";
 import { SectionHead, EmptyState, Badge } from "@/components/ui";
-import { CartFab } from "@/components/cart-fab";
 
 export const dynamic = "force-dynamic";
 
@@ -199,8 +198,6 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
           <li className="flex gap-2"><span className="font-bold text-brand-600">3.</span> Money is released only after you confirm delivery.</li>
         </ol>
       </section>
-
-      <CartFab />
     </div>
   );
 }

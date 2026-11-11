@@ -3,6 +3,7 @@ import { getSession } from "@/lib/supabase/server";
 import { createClient } from "@/lib/supabase/server";
 import { Logo, Avatar } from "@/components/ui";
 import { TabBar } from "@/components/tab-bar";
+import { CartFab } from "@/components/cart-fab";
 import { SiteFooter } from "@/components/site-footer";
 
 export default async function ShopLayout({ children }: { children: React.ReactNode }) {
@@ -61,6 +62,11 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
       <main className="mx-auto w-full max-w-7xl px-4 pb-24 pt-3 md:pb-10">{children}</main>
 
       <SiteFooter />
+
+      {/* Floating cart: a small circle in the bottom-right corner, above the
+          mobile tab bar. Rendered once here so it is available on every shop
+          page instead of only the home page. */}
+      <CartFab />
 
       <TabBar unread={unread} />
     </div>

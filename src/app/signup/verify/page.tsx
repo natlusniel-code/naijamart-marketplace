@@ -7,10 +7,11 @@ export const metadata = { title: "Verify your email" };
 export default function VerifyPage({
   searchParams,
 }: {
-  searchParams: { email?: string; role?: string };
+  searchParams: { email?: string; role?: string; limited?: string };
 }) {
   const email = searchParams.email ?? "your email";
   const role = searchParams.role ?? "buyer";
+  const limited = searchParams.limited === "1";
 
   return (
     <div className="flex min-h-screen flex-col bg-white">
@@ -18,7 +19,7 @@ export default function VerifyPage({
         <Logo />
       </div>
       <div className="flex flex-1 items-start justify-center px-4 pb-16 pt-6 sm:pt-16">
-        <VerifyEmail email={email} role={role} />
+        <VerifyEmail email={email} role={role} limited={limited} />
       </div>
       <div className="px-4 pb-8 text-center text-[11.5px] text-ink-400">
         By continuing you agree to our{" "}

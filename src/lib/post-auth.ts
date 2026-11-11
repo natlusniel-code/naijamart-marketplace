@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { sellerGatePath } from "./seller-gate";
 
 /**
  * Where a user should land after authenticating.
@@ -36,14 +37,17 @@ export async function postAuthDestination(
 
   const { data: shop } = await supabase
     .from("shops")
-    .select("id,status")
+    .select("id,status,subscription_status,bank_account_number")
     .eq("owner_id", userId)
     .maybeSingle();
 
   if (shop) {
-    // A shop that is still being set up belongs in onboarding, not the hub —
-    // the hub redirects there anyway, but going direct avoids a flash.
-    return shop.status === "draft" ? "/seller/onboarding" : "/seller";
+    // An unapproved shop belongs in onboarding, at the exact step it is on —
+    // business profile → verification → plan → pending approval. Only an
+    // admin-approved shop may see the Seller Hub.
+    const gate = sellerGatePath(shop);
+    if (gate) return gate;
+    return "/seller";
   }
 
   // No shop yet. If this account is a seller, they are at step 0 of the
@@ -59,7 +63,7 @@ export async function postAuthDestination(
     effectiveRole = profile?.role ?? null;
   }
 
-  if (effectiveRole === "seller") return "/seller/onboarding";
+  if (effectiveRole === "seller") return "/seller/onboarding?step=1";
 
   return "/";
 }

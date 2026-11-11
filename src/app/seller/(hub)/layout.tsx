@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/supabase/server";
+import { sellerGatePath } from "@/lib/seller-gate";
 import { Logo, Badge, Avatar } from "@/components/ui";
 import { SellerNav } from "@/components/seller/seller-nav";
 
@@ -9,6 +10,17 @@ export const dynamic = "force-dynamic";
 export default async function SellerLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   if (!session) redirect("/signin?next=%2Fseller");
+
+  // ── The approval gate ──────────────────────────────────────────────────────
+  // Every seller-only page lives under this layout, so this one check is what
+  // keeps an unapproved seller out of the hub. They are sent back to the exact
+  // step they are on (business profile → verification → plan → pending
+  // approval) instead of seeing a dashboard for a shop that is not live.
+  //
+  // `/seller/onboarding` is NOT under this layout (it is a sibling route), so
+  // this redirect can never loop.
+  const gate = sellerGatePath(session.shop);
+  if (gate) redirect(gate);
 
   const shop = session.shop;
 
