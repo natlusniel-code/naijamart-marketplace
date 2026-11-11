@@ -34,29 +34,18 @@ export function relTime(d: string | Date) {
   return shortDate(date);
 }
 
-export const NIGERIA_STATES = [
-  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
-  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
-  "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa",
-  "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba",
-  "Yobe", "Zamfara",
-];
-
-export const LGA_BY_STATE: Record<string, string[]> = {
-  Ogun: ["Abeokuta North", "Abeokuta South", "Ado-Odo/Ota", "Ewekoro", "Ifo", "Ijebu Ode", "Sagamu", "Yewa South"],
-  Lagos: ["Ikeja", "Ikorodu", "Lekki", "Surulere", "Alimosho", "Eti-Osa", "Agege", "Oshodi-Isolo"],
-  Oyo: ["Ibadan North", "Ibadan South-West", "Egbeda", "Oyo East", "Ogbomosho North"],
-  FCT: ["Abuja Municipal", "Bwari", "Gwagwalada", "Kuje", "Kwali"],
-  Rivers: ["Port Harcourt", "Obio/Akpor", "Eleme", "Okrika"],
-  Kano: ["Kano Municipal", "Fagge", "Nassarawa", "Tarauni"],
-  Enugu: ["Enugu North", "Enugu East", "Nsukka", "Udi"],
-  Kaduna: ["Kaduna North", "Kaduna South", "Zaria", "Chikun"],
-};
-
-export function lgasFor(state: string | null | undefined) {
-  if (!state) return [];
-  return LGA_BY_STATE[state] ?? [];
-}
+/**
+ * Nigeria location data lives in `@/lib/nigeria` — the full 774-LGA dataset.
+ *
+ * It is re-exported here so the ~6 existing importers
+ * (`location-picker`, `profile-form`, `onboarding-flow`, `signup-details`,
+ * `profile/location`) keep working unchanged and automatically pick up the
+ * complete list. New code should import from `@/lib/nigeria` directly.
+ *
+ * The previous implementation was a stub covering 8 states; it is gone.
+ */
+export { NIGERIA_STATES, LGA_BY_STATE, lgasFor, isValidLocation, TOTAL_LGAS } from "./nigeria";
+export type { NigeriaState } from "./nigeria";
 
 /** Order status → label + colour classes (the single source of truth for badges). */
 export const ORDER_STATUS: Record<string, { label: string; tone: "green" | "amber" | "blue" | "gray" | "red" | "violet" }> = {

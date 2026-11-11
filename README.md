@@ -171,6 +171,14 @@ reappears on the next load. Full steps in §5.
 
 ### Why the sign-up screen describes a link, not a code
 
+> **⚠️ Current state: email confirmation is DISABLED (`mailer_autoconfirm: true`).**
+> Signup now returns a live session and the user is signed straight in — no email is sent, and
+> `/signup/verify` is never reached. This was changed because the project's SMTP credentials were
+> rejected by Resend (`535 Authentication credentials invalid`), which made **every** signup fail
+> with `500 Error sending confirmation email` and created **no user at all**. See §1e.
+>
+> The section below still applies if you re-enable confirmation once SMTP works.
+
 The project's **Confirm signup** template is the stock Supabase one:
 
 ```html
@@ -257,6 +265,82 @@ as `SUPABASE_SERVICE_ROLE_KEY` and the hardcoded fallback is never used.
 2. Delete the `FALLBACK_SERVICE_ROLE_KEY` constant and change the resolution to
    `process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""`.
 3. Rotate the old key in Supabase, since it remains in git history.
+
+---
+
+## 1e. Signup: why it was failing, and the LGA dataset
+
+### The signup bug — a broken mailer, not a broken form
+
+Every signup failed with a red box reading:
+
+```
+Error sending confirmation email
+```
+
+**Root cause:** the project's SMTP credentials were rejected by Resend. Verified directly against
+`smtp.resend.com:465`:
+
+```
+220 Resend SMTP Relay ESMTP
+334 VXNlcm5hbWU6
+334 UGFzc3dvcmQ6
+535 Authentication credentials invalid
+```
+
+Because `mailer_autoconfirm` was `false`, Supabase tried to send a confirmation email *during*
+`auth.signUp`. The send failed, so the whole request returned **HTTP 500** — and critically,
+**no user row was created**. Signup was completely blocked, not merely noisy.
+
+**The fix:** `mailer_autoconfirm` is now **`true`**. Signup returns a live session immediately, so
+no email is needed and the broken mailer is out of the critical path. Verified end to end:
+
+| Step | Result |
+|---|---|
+| `POST /auth/v1/signup` | **200**, `email_confirmed_at` set, session returned |
+| `profiles` row (via `handle_new_user` trigger) | created — name, phone, state, city, role all persisted |
+| `POST /auth/v1/token?grant_type=password` | **200**, access token issued |
+
+`signup-details.tsx` now branches on `data.session`: when auto-confirm is on it routes straight to
+`postAuthDestination()` (sellers → `/seller`, buyers → `/`) instead of the "check your email" screen,
+which would have been a dead end. A mailer failure is also translated into a human message rather
+than a raw 500.
+
+**To re-enable email confirmation** (only after SMTP works): fix the Resend API key in
+Supabase → Authentication → Emails → SMTP Settings, send a test, then set
+`mailer_autoconfirm: false`. The link flow in §1c is still intact.
+
+### The LGA dataset — 774, not 44
+
+The "City / LGA" dropdown was driven by a hand-written stub in `utils.ts` covering **8 states and
+~44 LGAs**. Every other state produced an **empty** dropdown, and even the covered states were
+incomplete (Ogun had 8 of 20, Lagos 8 of 20). A seller in Benue could not state where they were.
+
+The data now lives in **`src/lib/nigeria.ts`**: all **774 LGAs across 36 states + the FCT**
+(768 LGAs + 6 FCT area councils), matching INEC's published per-state counts exactly.
+
+`utils.ts` re-exports it, so all five existing consumers — signup, seller onboarding, profile,
+`/profile/location`, and the listing form — picked up the full list with no per-file changes.
+
+**`npm test`** (→ `scripts/check-lga.mjs`) guards it. It transpiles the real module with the
+TypeScript compiler already in `devDependencies`, so there is exactly one copy of the data, and
+asserts: total is 774, every per-state count matches INEC, no duplicates or blank names, every
+state key round-trips, and `isValidLocation` accepts real pairs and rejects bogus ones.
+
+Verified in a real headless Chromium against a production build:
+
+| State | LGAs in dropdown |
+|---|---|
+| Ogun | 20 (was 8) |
+| Oyo | 33 (was 5) |
+| Lagos | 20 (was 8) |
+| Kano | 44 |
+| Benue | 23 (was **empty**) |
+| FCT | 6 |
+| Bayelsa | 8 |
+
+Two upstream spellings were normalised: `DanDume` → `Dandume` (Katsina), and the FCT's `Abuja`
+area council → `Abuja Municipal (AMAC)`.
 
 ---
 

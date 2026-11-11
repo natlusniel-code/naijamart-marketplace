@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { postAuthDestination } from "@/lib/post-auth";
 import { NIGERIA_STATES, lgasFor, cn } from "@/lib/utils";
 import { Spinner, Alert } from "@/components/ui";
 import { GoogleButton } from "@/components/google-button";
@@ -85,6 +86,14 @@ export function SignupDetails({ initialRole }: Props) {
         setErrors({ email: "That email is already registered. Try signing in." });
       } else if (msg.includes("password")) {
         setErrors({ password: "That password is too weak. Try a longer one." });
+      } else if (msg.includes("confirmation email") || msg.includes("sending email")) {
+        // The account row may or may not have been created, but the mailer is
+        // down. This is a server-side misconfiguration, not something the user
+        // can fix by retyping — say so plainly instead of showing a raw 500.
+        setErrors({
+          form:
+            "We couldn't send your confirmation email. This is a problem on our side, not yours — please contact support and we'll finish setting up your account.",
+        });
       } else {
         setErrors({ form: error.message });
       }
@@ -95,6 +104,18 @@ export function SignupDetails({ initialRole }: Props) {
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
       setBusy(false);
       setErrors({ email: "That email is already registered. Try signing in." });
+      return;
+    }
+
+    // ── Auto-confirm is ON ────────────────────────────────────────────────────
+    // When the project has `mailer_autoconfirm` enabled, signUp returns a live
+    // session and the user is already signed in. Sending them to the "check
+    // your email" screen would be a dead end: there is no email coming, and the
+    // resend button would fail. Go straight into the app instead.
+    if (data.session) {
+      const dest = await postAuthDestination(supabase, data.user!.id, null);
+      router.push(dest);
+      router.refresh();
       return;
     }
 
