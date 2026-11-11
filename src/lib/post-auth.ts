@@ -7,7 +7,7 @@ import { sellerGatePath } from "./seller-gate";
  * Sellers belong in the Seller Hub, not the storefront — that is where their
  * orders, listings and payouts live. Buyers keep going to the marketplace.
  *
- * ── Why this takes a `role` hint ─────────────────────────────────────────────
+ * ── Why this takes a `role` hint ──────────────────────────────────────────────
  * The shop lookup alone is NOT enough, and that was the seller-signup bug:
  * a brand-new seller has no `shops` row yet (the row is created in step 1 of
  * onboarding), so `shop` came back null and every new seller was dumped on the
@@ -35,6 +35,24 @@ export async function postAuthDestination(
     return requested;
   }
 
+  // ── The role decides first ──────────────────────────────────────────────────
+  // A buyer is a buyer even if a `shops` row happens to point at their account
+  // (a shop they opened earlier, a shop an admin re-assigned, a seeded row).
+  // Before this check the shop lookup ran first, so such an account was sent
+  // into the Seller Hub — and from there into the seller-only account settings
+  // page — the moment they signed in. Buyers belong on the storefront.
+  let effectiveRole = role ?? null;
+  if (!effectiveRole) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle();
+    effectiveRole = profile?.role ?? null;
+  }
+
+  if (effectiveRole === "buyer") return "/";
+
   const { data: shop } = await supabase
     .from("shops")
     .select("id,status,subscription_status,bank_account_number")
@@ -53,16 +71,6 @@ export async function postAuthDestination(
   // No shop yet. If this account is a seller, they are at step 0 of the
   // business-details → plan payment → pending-approval flow, so send them
   // there instead of the storefront.
-  let effectiveRole = role ?? null;
-  if (!effectiveRole) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", userId)
-      .maybeSingle();
-    effectiveRole = profile?.role ?? null;
-  }
-
   if (effectiveRole === "seller") return "/seller/onboarding?step=1";
 
   return "/";

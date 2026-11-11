@@ -85,6 +85,20 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/admin-fuckliving`);
   }
 
+  // A buyer is a buyer even if a `shops` row points at their account. Without
+  // this check the shop lookup below sent such an account into the Seller Hub
+  // (and its seller-only settings page) straight after signing in.
+  if (user) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (prof?.role === "buyer") {
+      return NextResponse.redirect(`${origin}${next !== "/" ? next : "/"}`);
+    }
+  }
+
   // A seller who just confirmed must continue their shop setup — business
   // profile first, then the plan, then the approval wait. They must NOT land in
   // the Seller Hub: that is only for an admin-approved shop.

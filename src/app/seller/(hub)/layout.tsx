@@ -11,7 +11,14 @@ export default async function SellerLayout({ children }: { children: React.React
   const session = await getSession();
   if (!session) redirect("/signin?next=%2Fseller");
 
-  // ── The approval gate ──────────────────────────────────────────────────────
+  // ── Buyers never see the Seller Hub ─────────────────────────────────────────
+  // The hub is seller-only. A buyer account can still own a `shops` row (an
+  // earlier shop, a re-assigned or seeded row), and the approval gate below
+  // would then let them straight into the seller dashboard and its account
+  // settings page. The role is the authority: a buyer goes to the storefront.
+  if (session.profile.role === "buyer") redirect("/");
+
+  // ── The approval gate ───────────────────────────────────────────────────────
   // Every seller-only page lives under this layout, so this one check is what
   // keeps an unapproved seller out of the hub. They are sent back to the exact
   // step they are on (business profile → verification → plan → pending
