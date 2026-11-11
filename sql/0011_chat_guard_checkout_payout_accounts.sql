@@ -1143,3 +1143,17 @@ with (security_invoker = true) as
     left join public.profiles rp on rp.id = b.receiver_id;
 
 grant select on public.blocked_messages_admin to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 8. Tell PostgREST to reload its schema cache
+--
+-- Without this the API keeps serving the schema it read at boot: every new
+-- function returns "Could not find the function public.<name>(...) in the
+-- schema cache" and the new tables are invisible, even though the objects
+-- exist in Postgres. The app then fails at runtime with an error that reads
+-- like missing code rather than a stale cache.
+--
+-- NOTIFY is delivered after this transaction commits, so the reload cannot
+-- race the DDL.
+-- ---------------------------------------------------------------------
+notify pgrst, 'reload schema';

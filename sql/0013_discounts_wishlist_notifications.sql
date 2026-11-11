@@ -320,3 +320,13 @@ end $$;
 -- 6. Backfill: nothing to do for discounts (null = no discount), but the
 --    wishlist and notification tables start empty by design.
 -- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- 7. Tell PostgREST to reload its schema cache
+--
+-- Same reason as 0011: a table created here is invisible to the API until
+-- the cache is reloaded. `notifications` is written by the admin broadcast
+-- action through the service role and read by the header bell, so a stale
+-- cache breaks both -- with "Could not find the table 'public.notifications'".
+-- ---------------------------------------------------------------------
+notify pgrst, 'reload schema';
