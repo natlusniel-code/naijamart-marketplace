@@ -1,45 +1,48 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { postAuthDestination } from "@/lib/post-auth";
+import { signInAction } from "@/app/auth/actions";
 import { cn } from "@/lib/utils";
 import { Spinner, Alert } from "@/components/ui";
-import { GoogleButton } from "@/components/google-button";
 
+/**
+ * Sign-in form.
+ *
+ * The password is posted to a Server Action (`signInAction`), not to Supabase
+ * from the browser. That is the fix for "the password is correct but the site
+ * says it is wrong": the check now runs against `public.account_credentials`,
+ * which is the store this app actually writes to, instead of against a
+ * Supabase password that may never have been set for the account.
+ *
+ * Google sign-in is gone — the brief asked for it to be removed, and the
+ * project never had the provider enabled anyway.
+ */
 export function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
-  // Only an EXPLICIT ?next= is forwarded to OAuth. Defaulting it to "/" would
-  // make the callback treat the storefront as a deliberate destination and
-  // skip the seller-hub routing below.
   const next = params.get("next") ?? "";
 
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
+  const [pending, startTransition] = useTransition();
 
-  // Friendly copy for deep links from /auth/callback (?error=…). Without this,
-  // a failed confirmation or OAuth round-trip lands back here in silence.
+  // Friendly copy for deep links from the old callback route (?error=…).
   const errorCode = params.get("error");
   useEffect(() => {
     if (!errorCode) return;
     const messages: Record<string, string> = {
-      google_disabled:
-        "Google sign-in isn't enabled on this project. Use your email and password instead.",
-      expired:
-        "That confirmation link has expired or was already used. Request a fresh link from the sign-up page.",
+      expired: "That link has expired. Sign in below, or reset your password.",
       auth: "We couldn't complete that sign-in. Please try again.",
     };
     setErr(messages[errorCode] ?? messages.auth);
   }, [errorCode]);
 
-  async function submit(e: React.FormEvent) {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
     const fe: Record<string, string> = {};
     if (!email.trim()) fe.email = "Enter your email address.";
@@ -48,36 +51,21 @@ export function SignInForm() {
     setErr("");
     if (Object.keys(fe).length) return;
 
-    setBusy(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    if (error) {
-      setBusy(false);
-      const m = error.message.toLowerCase();
-      if (m.includes("invalid login") || m.includes("credentials")) {
-        setErr("That email and password don't match. Check the password, or reset it below.");
-      } else if (m.includes("not confirmed") || m.includes("confirm")) {
-        setErr("Please verify your email first — we emailed you a confirmation link. Open it, then sign in.");
-      } else {
-        setErr(error.message);
-      }
-      return;
-    }
-    // Sellers land in the Seller Hub (or in onboarding if they have not opened
-    // a shop yet), buyers on the storefront. `postAuthDestination` asks the
-    // database — the profile role and the `shops` row together, via the shared
-    // `isBuyerAccount` rule — so a seller who has not started onboarding is not
-    // mistaken for a buyer, and a buyer who owns a shop is not mistaken for a
-    // seller. An explicit `?next=` always wins.
-    const explicitNext = params.get("next");
-    const uid = (await supabase.auth.getUser()).data.user?.id ?? "";
-    const dest = await postAuthDestination(supabase, uid, explicitNext);
+    const fd = new FormData();
+    fd.set("email", email.trim());
+    fd.set("password", password);
+    if (next) fd.set("next", next);
 
-    router.push(dest);
-    router.refresh();
+    startTransition(async () => {
+      const result = await signInAction(fd);
+      if (!result.ok) {
+        setErr(result.error);
+        if (result.field) setFieldErr({ [result.field]: result.error });
+        return;
+      }
+      router.push(result.next ?? "/");
+      router.refresh();
+    });
   }
 
   return (
@@ -136,14 +124,9 @@ export function SignInForm() {
 
         {err && <Alert tone="red">{err}</Alert>}
 
-        <button type="submit" disabled={busy} className="nm-btn-primary w-full !py-3">
-          {busy ? <><Spinner /> Signing in…</> : "Sign in"}
+        <button type="submit" disabled={pending} className="nm-btn-primary w-full !py-3">
+          {pending ? <><Spinner /> Signing in…</> : "Sign in"}
         </button>
-
-        <GoogleButton
-          redirectTo={`/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ""}`}
-          onError={setErr}
-        />
       </form>
 
       <p className="mt-5 text-center text-[13px] text-ink-500">
