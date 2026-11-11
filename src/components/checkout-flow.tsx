@@ -8,6 +8,7 @@ import { readCart, writeCart, clearCart, shopSubtotal, shopDelivery, type Cart }
 import { naira } from "@/lib/utils";
 import { Spinner, Alert, Badge } from "@/components/ui";
 import { SupportLink } from "@/components/support-link";
+import { CopyValue, CopyPaymentDetails } from "@/components/copy-value";
 
 type SavedAddress = {
   id: string;
@@ -306,19 +307,44 @@ export function CheckoutFlow({
               <div className="mx-4 mb-3 rounded-xl border border-brand-500/25 bg-brand-50/60 p-3">
                 <p className="text-[12px] font-bold text-brand-900">Pay NaijaMart (escrow account)</p>
                 {account ? (
-                  <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12.5px]">
-                    <dt className="text-brand-900/60">Bank</dt><dd className="font-semibold text-brand-900">{account.bank_name}</dd>
-                    <dt className="text-brand-900/60">Account</dt><dd className="font-mono font-semibold tracking-wide text-brand-900">{account.account_number}</dd>
-                    <dt className="text-brand-900/60">Name</dt><dd className="font-semibold text-brand-900">{account.account_name}</dd>
-                    <dt className="text-brand-900/60">Amount</dt><dd className="font-semibold text-brand-900">{naira(sub + fee)}</dd>
-                  </dl>
+                  <>
+                    <dl className="mt-1.5 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-[12.5px]">
+                      <dt className="text-brand-900/60">Bank</dt>
+                      <dd className="text-brand-900">
+                        <CopyValue value={account.bank_name} label="bank name" />
+                      </dd>
+                      <dt className="text-brand-900/60">Account</dt>
+                      <dd className="text-brand-900">
+                        <CopyValue value={account.account_number} label="account number" mono />
+                      </dd>
+                      <dt className="text-brand-900/60">Name</dt>
+                      <dd className="text-brand-900">
+                        <CopyValue value={account.account_name} label="account name" />
+                      </dd>
+                      <dt className="text-brand-900/60">Amount</dt>
+                      <dd className="text-brand-900">
+                        {/* Shows "₦12,500" but copies the bare digits — a transfer form rejects the symbol. */}
+                        <CopyValue value={String(sub + fee)} label="amount" className="text-[13.5px]">
+                          {naira(sub + fee)}
+                        </CopyValue>
+                      </dd>
+                    </dl>
+                    <CopyPaymentDetails
+                      bank={account.bank_name}
+                      accountNumber={account.account_number}
+                      accountName={account.account_name}
+                      amount={String(sub + fee)}
+                      amountLabel={naira(sub + fee)}
+                    />
+                  </>
                 ) : (
                   <p className="mt-1.5 text-[12.5px] text-brand-900/80">
                     No payment account is set up yet. Please contact support before transferring.
                   </p>
                 )}
                 <p className="mt-1.5 text-[11.5px] leading-relaxed text-brand-900/70">
-                  Transfer the exact amount, then upload your receipt below. Your reference is generated when the order is created.
+                  Tap the copy icon beside any detail to paste it into your bank app. Transfer the exact
+                  amount, then upload your receipt below. Your reference is generated when the order is created.
                 </p>
               </div>
 
