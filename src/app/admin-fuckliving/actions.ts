@@ -298,13 +298,23 @@ export async function resolveDispute(
         .eq("order_id", order.id)
         .eq("status", "queued");
     } else {
-      // Seller wins: treat as delivered and queue the payout, unlocked in 4 days.
+      // Seller wins: treat as delivered and queue the payout.
       await supabase
         .from("orders")
         .update({ status: "delivered", payout_status: "released" })
         .eq("id", order.id);
 
-      const availableAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      // The hold matches `payout_hold_days` in platform_settings — the same
+      // rule admin_resolve_dispute applies in SQL. It used to be hardcoded to
+      // one day here, which quietly paid a seller three days earlier than the
+      // platform allows every other release path.
+      const { data: settings } = await supabase
+        .from("platform_settings")
+        .select("payout_hold_days")
+        .eq("id", 1)
+        .maybeSingle();
+      const holdDays = Number(settings?.payout_hold_days ?? 4);
+      const availableAt = new Date(Date.now() + holdDays * 24 * 60 * 60 * 1000).toISOString();
       await supabase.from("payouts").insert({
         shop_id: order.shop_id,
         order_id: order.id,
