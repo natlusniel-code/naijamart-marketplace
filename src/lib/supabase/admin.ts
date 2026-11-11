@@ -1,58 +1,28 @@
-/**
- * Server-only Supabase client for the admin console.
- *
- * ── Why this exists ──────────────────────────────────────────────────────────
- * The admin console is intentionally reachable WITHOUT a login. That is a
- * deliberate product decision, not an oversight: it is a single-operator
- * back office behind an obscure path.
- *
- * The consequence is that the ordinary anon client cannot read anything, because
- * every admin-relevant RLS policy is gated on `is_admin()` — and an anonymous
- * request is not an admin. Rather than weaken those policies (which would expose
- * every buyer's orders, addresses and payout details to anyone holding the
- * public anon key), the admin console talks to the database through the
- * service-role key, which bypasses RLS.
- *
- * ── The rules that make that safe ────────────────────────────────────────────
- *  1. The key is a NON-public value. Next.js only inlines `NEXT_PUBLIC_*` into
- *     the browser bundle, so this module must never be imported from a Client
- *     Component. The build enforces this too: the `server-only` import below
- *     turns any accidental client-side import into a compile error rather than
- *     a leaked key.
- *  2. Every mutation goes through a Server Action in `src/app/admin-fuckliving/
- *     actions.ts`, which runs on the server. The browser never sees the key and
- *     never calls Supabase directly for admin work.
- *  3. It degrades loudly, not silently: if no key is available the console still
- *     renders (see `hasAdminKey`) but says so on every page, instead of showing
- *     an empty dashboard that looks like "no orders yet".
- *
- * ── ⚠️  THE KEY IS COMMITTED TO THIS REPOSITORY ──────────────────────────────
- * `FALLBACK_SERVICE_ROLE_KEY` below is a real, working service-role credential
- * checked into source control. This was an explicit, accepted trade-off so the
- * admin console works on a deployment with no environment variables configured.
- *
- * It means: **this repository must stay PRIVATE.** Anyone who can read the repo
- * can read every buyer's orders, addresses, payout details and can write to the
- * database as an admin. If the repo is ever made public, or the key is ever
- * pasted into a chat, issue, log or screenshot, rotate it immediately in
- * Supabase → Project Settings → API Keys and update the constant below.
- *
- * `SUPABASE_SERVICE_ROLE_KEY` still takes precedence when it is set, so a
- * deployment can override the committed key without a code change — and
- * rotating the key in Vercel alone is enough to neutralise the committed one.
- */
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config";
 
 /**
- * Committed fallback service-role key (Supabase `sb_secret_…` format).
+ * Committed fallback service-role key.
  *
  * Used only when `SUPABASE_SERVICE_ROLE_KEY` is not set in the environment.
  * Never prefix this with `NEXT_PUBLIC_` and never import this module from a
  * Client Component — see the header comment.
+ *
+ * ── History (do not repeat this mistake) ─────────────────────────────────────
+ * This constant previously held an `sb_secret_…` key that had been ROTATED and
+ * was dead: every admin call returned `401 Unregistered API key`. Because the
+ * signup route maps errors by message, that surfaced to users as
+ * "that email is already registered" — a dead credential disguised as a
+ * business error. The value below is the project's current legacy
+ * `service_role` JWT, verified against `/auth/v1/admin/users`.
+ *
+ * If admin calls start failing with 401 again, check this key FIRST — and
+ * prefer setting `SUPABASE_SERVICE_ROLE_KEY` in the deployment so rotation
+ * needs no code change.
  */
-const FALLBACK_SERVICE_ROLE_KEY = "sb_secret_zWA00lh_YCaV607nTOYA2Q__EfCDaRb";
+const FALLBACK_SERVICE_ROLE_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjZWprZXZkZnB6ZnZ3ZmpqcXdjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5NDE2MTE2OSwiZXhwIjoyMTA5NzM3MTY5fQ.v3EDLXinNG3v5x5kFUPmH3_ZzaxXv30qwcuro6GaDl0";
 
 /**
  * Resolution order:
