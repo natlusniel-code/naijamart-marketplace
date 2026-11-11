@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 const ITEMS = [
   { href: "/", label: "Home", icon: "home" },
   { href: "/search", label: "Search", icon: "search" },
+  { href: "/wishlist", label: "Saved", icon: "heart" },
   { href: "/chats", label: "Chats", icon: "chat" },
   { href: "/orders", label: "Orders", icon: "box" },
   { href: "/profile", label: "Profile", icon: "user" },
@@ -24,6 +25,8 @@ function Icon({ name, active }: { name: string; active: boolean }) {
       return <svg viewBox="0 0 24 24" className="h-[21px] w-[21px]" {...common}><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>;
     case "chat":
       return <svg viewBox="0 0 24 24" className="h-[21px] w-[21px]" {...common}><path d="M20.5 12c0 4.1-3.8 7.4-8.5 7.4-1 0-1.9-.15-2.8-.42L4 21l1.3-3.6A7 7 0 0 1 3.5 12C3.5 7.9 7.3 4.6 12 4.6s8.5 3.3 8.5 7.4Z" /></svg>;
+    case "heart":
+      return <svg viewBox="0 0 24 24" className="h-[21px] w-[21px]" {...common}><path d="M12 20.5s-7.5-4.6-7.5-9.6a4.4 4.4 0 0 1 7.5-3.1 4.4 4.4 0 0 1 7.5 3.1c0 5-7.5 9.6-7.5 9.6Z" /></svg>;
     case "box":
       return <svg viewBox="0 0 24 24" className="h-[21px] w-[21px]" {...common}><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m4 7.5 8 4.5 8-4.5M12 12v9" /></svg>;
     default:

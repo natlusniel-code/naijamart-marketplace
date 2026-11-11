@@ -16,6 +16,8 @@ export type CartShop = {
     listingId: string;
     title: string;
     price: number;
+    /** The "was" price at the moment it was added, for the saving line. */
+    originalPrice?: number | null;
     quantity: number;
     image: string | null;
   }[];
@@ -54,6 +56,7 @@ export function addToCart(item: {
   listingId: string;
   title: string;
   price: number;
+  originalPrice?: number | null;
   image?: string | null;
   quantity?: number;
 }) {
@@ -81,6 +84,7 @@ export function addToCart(item: {
       listingId: item.listingId,
       title: item.title,
       price: item.price,
+      originalPrice: item.originalPrice ?? null,
       quantity: item.quantity ?? 1,
       image: item.image ?? null,
     });

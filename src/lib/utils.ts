@@ -84,6 +84,34 @@ export function stepIndexFor(status: string, fulfilment = "delivery") {
   }
 }
 
+/**
+ * Discount maths, in one place.
+ *
+ * The database stores `discount_percent` as a generated column, so the
+ * storefront normally just reads it. This function exists for the two places
+ * that cannot: the seller's form (which must show the percentage *before* the
+ * row is saved) and the cart (which holds a price snapshot, not a listing).
+ *
+ * Returns 0 — not null — when there is no real discount, so callers can use
+ * `if (pct > 0)` without a null check. A "discount" that does not lower the
+ * price is not a discount, and rounding is to 2dp to match the column.
+ */
+export function discountPercent(price: number, originalPrice: number | null | undefined): number {
+  if (originalPrice == null) return 0;
+  const was = Number(originalPrice);
+  const now = Number(price);
+  if (!isFinite(was) || !isFinite(now) || was <= 0 || was <= now) return 0;
+  return Math.round(((was - now) / was) * 10000) / 100;
+}
+
+/** "25% off" — the label on the badge. Empty string when there is no discount. */
+export function discountLabel(price: number, originalPrice: number | null | undefined): string {
+  const pct = discountPercent(price, originalPrice);
+  if (pct <= 0) return "";
+  // 12.5% reads better than 12.50%; 12% better than 12.00%.
+  return `${Number.isInteger(pct) ? pct : pct.toFixed(1)}% off`;
+}
+
 export function initials(name: string | null | undefined) {
   if (!name) return "NM";
   return name

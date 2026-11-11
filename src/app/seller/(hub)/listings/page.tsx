@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, createClient } from "@/lib/supabase/server";
-import { naira } from "@/lib/utils";
+import { naira, discountPercent } from "@/lib/utils";
 import { Badge, EmptyState, Card } from "@/components/ui";
 import { ListingRowActions } from "@/components/seller/listing-actions";
 
@@ -23,7 +23,7 @@ export default async function SellerListingsPage() {
   const supabase = createClient();
   const { data: listings } = await supabase
     .from("listings")
-    .select("id,title,type,price,stock,status,images,created_at")
+    .select("id,title,type,price,original_price,discount_percent,stock,status,images,created_at")
     .eq("shop_id", session.shop.id)
     .order("created_at", { ascending: false });
 
@@ -72,7 +72,20 @@ export default async function SellerListingsPage() {
                 </Link>
                 <div className="min-w-0 flex-1">
                   <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-ink-900">{l.title}</p>
-                  <p className="mt-0.5 text-[13px] font-bold text-ink-900">{naira(l.price)}</p>
+                  <p className="mt-0.5 flex flex-wrap items-baseline gap-1.5 text-[13px] font-bold text-ink-900">
+                    {naira(l.price)}
+                    {discountPercent(Number(l.price), l.original_price) > 0 && l.original_price != null && (
+                      <>
+                        <span className="text-[11px] font-medium text-ink-400 line-through">{naira(l.original_price)}</span>
+                        <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          {Number.isInteger(discountPercent(Number(l.price), l.original_price))
+                            ? discountPercent(Number(l.price), l.original_price)
+                            : discountPercent(Number(l.price), l.original_price).toFixed(1)}
+                          % off
+                        </span>
+                      </>
+                    )}
+                  </p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <Badge tone={STATUS_TONE[l.status] ?? "gray"}>{l.status.replace("_", " ")}</Badge>
                     <Badge tone="gray">{l.type}</Badge>

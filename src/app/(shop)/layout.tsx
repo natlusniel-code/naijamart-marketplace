@@ -5,6 +5,7 @@ import { Logo, Avatar } from "@/components/ui";
 import { TabBar } from "@/components/tab-bar";
 import { CartFab } from "@/components/cart-fab";
 import { SiteFooter } from "@/components/site-footer";
+import { NotificationBell } from "@/components/notification-bell";
 
 export default async function ShopLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -13,9 +14,15 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
   // Unread MESSAGES, not conversations — the old count never cleared after
   // reading a chat. Backed by the unread_message_count() RPC (sql/0009).
   let unread = 0;
+  // Unread NOTIFICATIONS — a separate count from messages, shown on the bell.
+  let unreadNotifications = 0;
   if (session) {
-    const { data } = await supabase.rpc("unread_message_count");
-    unread = typeof data === "number" ? data : 0;
+    const [{ data: msgCount }, { data: notifCount }] = await Promise.all([
+      supabase.rpc("unread_message_count"),
+      supabase.rpc("unread_notification_count"),
+    ]);
+    unread = typeof msgCount === "number" ? msgCount : 0;
+    unreadNotifications = typeof notifCount === "number" ? notifCount : 0;
   }
 
   const city = session?.profile.city ?? "Abeokuta South";
@@ -36,6 +43,7 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
           </Link>
 
           <div className="ml-auto flex items-center gap-1.5">
+            {session && <NotificationBell unread={unreadNotifications} />}
             {session?.shop && (
               <Link href="/seller" className="nm-btn-ghost hidden !px-3 !py-1.5 !text-[13px] sm:inline-flex">
                 Seller hub

@@ -11,7 +11,7 @@ export function AddToCartBar({
   shop,
   signedIn,
 }: {
-  listing: { id: string; title: string; price: number; images: string[] };
+  listing: { id: string; title: string; price: number; original_price?: number | null; images: string[] };
   shop: { id: string; slug: string; name: string; logo_url: string | null; city: string | null; state: string | null; delivery_fee: number; free_delivery_threshold: number | null; pickup_available: boolean };
   signedIn: boolean;
 }) {
@@ -34,6 +34,7 @@ export function AddToCartBar({
       listingId: listing.id,
       title: listing.title,
       price: listing.price,
+      originalPrice: listing.original_price ?? null,
       image: listing.images?.[0] ?? null,
       quantity: qty,
     });
