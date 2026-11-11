@@ -6,6 +6,7 @@ import {
   labelForPath,
   startLoading,
   stopLoading,
+  stopAllNavigation,
   getLoaderState,
 } from "@/lib/global-loader";
 
@@ -49,10 +50,11 @@ export function GlobalLoaderTriggers() {
     const url = `${pathname}?${searchParams?.toString() ?? ""}`;
     if (lastUrl.current !== url) {
       lastUrl.current = url;
-      if (navToken.current) {
-        stopLoading(navToken.current);
-        navToken.current = null;
-      }
+      // Stop EVERY navigation token, not just the newest one. A superseded
+      // navigation (two clicks in one tick) would otherwise stay pending and
+      // keep the overlay on screen forever — the stuck search loader.
+      stopAllNavigation();
+      navToken.current = null;
     }
   }, [pathname, searchParams]);
 
@@ -97,6 +99,10 @@ export function GlobalLoaderTriggers() {
       const here = `${window.location.pathname}${window.location.search}`;
       const there = `${url.pathname}${url.search}`;
       if (here === there) return;
+
+      // One navigation at a time. Without this, a second click in the same
+      // tick starts a second token that nothing will ever stop.
+      if (navToken.current) return;
 
       navToken.current = startLoading("navigation", labelForPath(url.pathname));
     }

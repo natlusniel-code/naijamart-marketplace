@@ -57,8 +57,15 @@ const INITIAL: LoaderState = {
 let state: LoaderState = INITIAL;
 const listeners = new Set<(s: LoaderState) => void>();
 
-/** Pending work, keyed so a stop can only clear its own entry. */
-const pending = new Map<string, LoadKind>();
+/**
+ * Pending work, keyed so a stop can only clear its own entry.
+ *
+ * `at` is when the entry was created. It exists so a stale entry can be swept:
+ * if a caller ever fails to stop its own token (a cancelled navigation, a
+ * component unmounted mid-request), the overlay must not stay up forever.
+ */
+type PendingEntry = { kind: LoadKind; at: number };
+const pending = new Map<string, PendingEntry>();
 
 let showTimer: ReturnType<typeof setTimeout> | null = null;
 let minVisibleUntil = 0;
@@ -107,7 +114,23 @@ function showNow(label: string, blocking: boolean) {
     // Give up: stop spinning, offer a reload, and — critically — stop blocking
     // input. A stuck overlay that still swallowed clicks would leave the user
     // unable to do anything at all, including press Retry.
+    //
+    // Clearing `pending` is what makes this a real escape hatch. Previously the
+    // timeout only flipped the panel to "taking too long" while the orphaned
+    // token kept the overlay mounted, so the user was left staring at it.
+    pending.clear();
     emit({ failed: true, blocking: false });
+
+    // And never leave it up indefinitely: hide it after a short beat.
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      hideTimer = null;
+      emit({ fading: true });
+      fadeTimer = setTimeout(() => {
+        fadeTimer = null;
+        emit({ visible: false, fading: false, failed: false, blocking: false });
+      }, FADE_OUT);
+    }, 6000);
   }, TIMEOUT);
 }
 
@@ -119,8 +142,28 @@ function showNow(label: string, blocking: boolean) {
  * the loader still updates the text, because the user's intent changed.
  */
 export function startLoading(kind: LoadKind, label = "Loading..."): string {
+  sweepStale();
+
   const token = `${kind}:${++seq}`;
-  pending.set(token, kind);
+
+  // A new navigation SUPERSEDES any navigation already in flight.
+  //
+  // This is the fix for the stuck search loader. Two clicks in the same tick
+  // (a double-tap on a category chip, or a chip clicked while the previous
+  // navigation is still resolving) both reach here before the overlay is on
+  // screen, so the click interceptor's "already blocking" guard has nothing to
+  // see. The caller only remembers the NEWEST token, so the first one is never
+  // stopped: it sits in `pending` forever, `pending.size` never returns to 0,
+  // and the overlay can never hide again. Dropping the older navigation
+  // entries here means the set always reflects the one navigation that is
+  // actually going to finish.
+  if (kind === "navigation") {
+    for (const [t, entry] of pending) {
+      if (entry.kind === "navigation") pending.delete(t);
+    }
+  }
+
+  pending.set(token, { kind, at: Date.now() });
 
   if (state.visible && !state.fading) {
     // Already on screen: just retitle it. A navigation outranks a data load.
@@ -141,13 +184,27 @@ export function startLoading(kind: LoadKind, label = "Loading..."): string {
   return token;
 }
 
-/** End a load. The overlay hides only when nothing else is pending. */
-export function stopLoading(token?: string) {
-  if (token) pending.delete(token);
-  else pending.clear();
+/**
+ * Drop pending entries that have outlived `TIMEOUT`.
+ *
+ * A safety net, not the primary mechanism: the real fix is that every start
+ * has a matching stop. But a single missed stop used to wedge the overlay for
+ * the rest of the session, so anything older than the timeout is discarded.
+ */
+function sweepStale() {
+  const now = Date.now();
+  let removed = false;
+  for (const [t, entry] of pending) {
+    if (now - entry.at > TIMEOUT) {
+      pending.delete(t);
+      removed = true;
+    }
+  }
+  if (removed && pending.size === 0) hide();
+}
 
-  if (pending.size > 0) return;
-
+/** Fade the overlay out, honouring `MIN_VISIBLE`. */
+function hide() {
   if (showTimer) {
     // It never became visible — nothing to hide.
     clearTimeout(showTimer);
@@ -173,6 +230,33 @@ export function stopLoading(token?: string) {
   }, wait);
 }
 
+/** End a load. The overlay hides only when nothing else is pending. */
+export function stopLoading(token?: string) {
+  if (token) pending.delete(token);
+  else pending.clear();
+
+  if (pending.size > 0) return;
+  hide();
+}
+
+/**
+ * End every navigation load at once.
+ *
+ * Called when the route has actually changed. Stopping only the newest token
+ * (the old behaviour) left any superseded navigation behind, which is what
+ * kept the overlay up after a fast double click.
+ */
+export function stopAllNavigation() {
+  let removed = false;
+  for (const [t, entry] of pending) {
+    if (entry.kind === "navigation") {
+      pending.delete(t);
+      removed = true;
+    }
+  }
+  if (removed && pending.size === 0) hide();
+}
+
 /** Hard reset — used by the retry button and on a full page load. */
 export function resetLoader() {
   clearTimers();
@@ -192,6 +276,7 @@ export function labelForPath(path: string): string {
   const p = path.split("?")[0].split("#")[0];
   if (p === "/cart") return "Loading your cart...";
   if (p === "/checkout") return "Loading checkout...";
+  if (p === "/search") return "Searching...";
   if (p.startsWith("/shop/")) return "Loading shop...";
   if (p.startsWith("/listing/")) return "Loading product...";
   return "Loading...";
