@@ -37,18 +37,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </header>
 
-      {/* Without the service-role key the console can read nothing. Say so loudly
+      {/* Safety net only. `admin.ts` ships a committed fallback key, so this
+          banner should never appear in practice — it exists so that if the
+          fallback is ever removed or blanked, the console says so loudly
           instead of rendering an empty dashboard that looks like "no orders yet". */}
       {!hasAdminKey && (
         <div className="mx-auto max-w-7xl px-4 pt-3">
           <div className="rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-[12.5px] text-amber-900">
             <strong className="font-bold">Admin database access is not configured.</strong>{" "}
-            Set{" "}
+            No service-role key was found — neither{" "}
             <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">
               SUPABASE_SERVICE_ROLE_KEY
             </code>{" "}
-            in the server environment (Vercel → Settings → Environment Variables) and redeploy.
-            Until then every page below is empty and no admin action can be saved. See README §1d.
+            nor the committed fallback in{" "}
+            <code className="rounded bg-amber-100 px-1 py-0.5 font-mono">
+              src/lib/supabase/admin.ts
+            </code>
+            . Until one is present every page below is empty and no admin action can be saved.
+            See README §1d.
           </div>
         </div>
       )}

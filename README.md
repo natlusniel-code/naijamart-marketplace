@@ -208,6 +208,58 @@ turns into friendly copy.
 
 ---
 
+## 1d. ⚠️ The service-role key is hardcoded in this repository
+
+**`src/lib/supabase/admin.ts` contains a real, working Supabase service-role key in source control.**
+
+```ts
+const FALLBACK_SERVICE_ROLE_KEY = "sb_secret_…";   // committed on purpose
+```
+
+This was a deliberate, accepted trade-off: it lets the admin console work on a deployment with
+**no environment variables configured at all**, so `/admin-fuckliving` shows real data out of the
+box instead of an empty dashboard.
+
+### What that means
+
+> 🔴 **This repository MUST stay private.**
+>
+> A service-role key bypasses every RLS policy. Anyone who can read this repo can read every
+> buyer's orders, addresses and payout details, and can write to the database as an admin.
+> If the repo is ever made public, or the key is pasted into a chat, issue, log or screenshot,
+> **rotate it immediately** (Supabase → Project Settings → API Keys) and update the constant.
+
+The repo is currently **private**. Do not flip it to public while this key is in the tree.
+
+### How the key is resolved
+
+| Order | Source | Notes |
+|---|---|---|
+| 1 | `SUPABASE_SERVICE_ROLE_KEY` env var | Preferred. Lets a deployment override or rotate the key **without a code change**. |
+| 2 | `FALLBACK_SERVICE_ROLE_KEY` (committed) | Used when the env var is unset or blank. |
+
+So rotating the key in Vercel alone is enough to neutralise the committed one — set the new value
+as `SUPABASE_SERVICE_ROLE_KEY` and the hardcoded fallback is never used.
+
+### Why it still cannot leak to the browser
+
+- The module imports **`server-only`**, so any import from a Client Component is a **compile
+  error**, not a runtime leak.
+- The constant is **not** prefixed `NEXT_PUBLIC_`, so Next.js never inlines it into the client
+  bundle. Only `NEXT_PUBLIC_*` values are inlined.
+- All 11 importers are Server Components or Server Actions (`(console)/*`, `actions.ts`).
+- Every admin mutation runs as a Server Action; the browser never calls Supabase directly for
+  admin work.
+
+### If you want to remove the hardcoded key later
+
+1. Set `SUPABASE_SERVICE_ROLE_KEY` in Vercel (and `.env.local`).
+2. Delete the `FALLBACK_SERVICE_ROLE_KEY` constant and change the resolution to
+   `process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""`.
+3. Rotate the old key in Supabase, since it remains in git history.
+
+---
+
 ## 2. The SQL you must apply
 
 Run these **in order** in the Supabase dashboard → **SQL Editor**. Each file is idempotent-ish:
@@ -301,22 +353,25 @@ the **service-role key**, which bypasses RLS:
   resolve dispute, approve/suspend shop, ban buyer, moderate review, save settings, manage
   categories) is a **Server Action**. The browser never sees the key and never calls Supabase
   directly for admin work.
-- The key is read **only** from `SUPABASE_SERVICE_ROLE_KEY` and is deliberately **not** given a
-  literal fallback in code — baking one in would put a full-admin credential in a public repo.
+- The key comes from `SUPABASE_SERVICE_ROLE_KEY` when set, and otherwise falls back to a
+  **committed** key in `admin.ts` — see **§1d**. The repository must therefore stay private.
 
-### Required environment variable
+### Optional environment variable (there is a committed fallback)
 
 ```bash
-SUPABASE_SERVICE_ROLE_KEY=<service role key>   # server-side only, never NEXT_PUBLIC_
+SUPABASE_SERVICE_ROLE_KEY=<service role key>   # optional; server-side only, never NEXT_PUBLIC_
 ```
 
-Set it in **Vercel → Settings → Environment Variables** (and in `.env.local` for local dev).
-Find it in Supabase → Project Settings → API → `service_role`.
+**You do not need to set this.** `admin.ts` ships a working fallback (§1d), which is why the console
+shows real data on a deployment with no environment variables at all. Setting it in
+**Vercel → Settings → Environment Variables** (and `.env.local` for local dev) is still the preferred
+way to run it, because it lets you rotate the key without a code change — the committed fallback is
+ignored whenever the env var is present. Find the value in Supabase → Project Settings → API Keys.
 
-**Without it the console still renders** — it falls back to the anon key (already public) and
-shows an amber banner: *"Admin database access is not configured."* Pages load but return no
-rows and no admin action can be saved. That is intentional: a missing key should look like a
-configuration problem, not like "no orders yet".
+**With no key at all** (env var unset *and* the fallback removed) the console still renders — it
+falls back to the anon key (already public) and shows an amber banner: *"Admin database access is
+not configured."* Pages load but return no rows and no admin action can be saved. That is
+intentional: a missing key should look like a configuration problem, not like "no orders yet".
 
 > ⚠️ **This means the admin console is open to anyone who knows the URL.** That is the trade-off
 > that was asked for. If you later want it locked down, the cleanest path is to re-add a session
@@ -413,7 +468,7 @@ apikey: <service role key>       # server-side only
 | Item | Why | What to do |
 |---|---|---|
 | **Applying the SQL** | ✅ Done on `solo proud` | Already applied — re-run the six files in the SQL editor only if you reset the project (§2) |
-| **Vercel env vars** | The two `NEXT_PUBLIC_*` vars are optional (built-in fallback, §1b); the other two are not | Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, **`JOBS_SECRET`** and **`SUPABASE_SERVICE_ROLE_KEY`** in Vercel → Settings → Environment Variables. `JOBS_SECRET` is required for `/api/jobs/run`; `SUPABASE_SERVICE_ROLE_KEY` is required for the admin console to read or write anything (§3). |
+| **Vercel env vars** | The two `NEXT_PUBLIC_*` vars are optional (built-in fallback, §1b); `SUPABASE_SERVICE_ROLE_KEY` is now optional too (§1d); only `JOBS_SECRET` is genuinely required | Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, **`JOBS_SECRET`** and **`SUPABASE_SERVICE_ROLE_KEY`** in Vercel → Settings → Environment Variables. `JOBS_SECRET` is required for `/api/jobs/run`. `SUPABASE_SERVICE_ROLE_KEY` is **optional** — the admin console has a committed fallback (§1d) — but setting it lets you rotate the key without a code change. |
 | **`run_order_timers` schedule** | ✅ Done on `solo proud` | Scheduled with pg_cron every 15 min (§4) |
 | **Google sign-in** | **Not enabled** on `solo proud` — `external_google_enabled: false` and both client id/secret are `null`. There are no Google OAuth credentials in this repo, so it cannot be switched on from code. | The app now **detects this at runtime** (`GET /auth/v1/settings`) and hides the Google button, showing *"Email sign-in only for now — Google sign-in isn't enabled on this project."* instead of walking the user into a JSON error page (§1c). To enable it: create an OAuth client in Google Cloud Console with the authorised redirect URI `https://ecejkevdfpzfvwfjjqwc.supabase.co/auth/v1/callback`, paste the Client ID + Secret into Supabase → Authentication → Providers → Google, toggle it on. **No code change is needed** — the button reappears on the next page load. |
 | **Email verification link** | Email signup **is** enabled and sends a **confirmation link**, not a code | Works out of the box; `/signup/verify` now describes a link and the UI no longer asks for a 6-digit code (§1c). For testing, Supabase's default mailer is rate-limited (~4/hour) — add your own SMTP under Auth → Email for real volume. To switch to a *code* instead, put `{{ .Token }}` in the Confirm-signup template and follow the note in §1c. |
