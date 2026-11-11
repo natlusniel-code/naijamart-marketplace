@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Spinner, Alert, Badge } from "@/components/ui";
+import { savePaymentAccount, deletePaymentAccount } from "@/app/admin-fuckliving/payment-account-actions";
 
 export type PaymentAccount = {
   id: string;
@@ -32,9 +32,13 @@ const EMPTY = {
 /**
  * Admin management for the payment accounts buyers transfer into.
  *
- * All writes go through `admin_save_payment_account` /
- * `admin_delete_payment_account` (sql/0011), which check `is_admin()`
- * server-side. The list itself is admin-only under RLS.
+ * All writes go through the server actions in
+ * `src/app/admin-fuckliving/payment-account-actions.ts`, which run with the
+ * service-role client on the server. They used to call the
+ * `admin_save_payment_account` / `admin_delete_payment_account` RPCs straight
+ * from the browser, and those raise "Admins only." unless the caller has a row
+ * in `admin_users` - so on a console with no sign-in gate every save failed and
+ * nothing changed.
  */
 export function PaymentAccountsManager({ accounts }: { accounts: PaymentAccount[] }) {
   const router = useRouter();
@@ -71,21 +75,20 @@ export function PaymentAccountsManager({ accounts }: { accounts: PaymentAccount[
     setErr("");
     setOk("");
 
-    const supabase = createClient();
-    const { error } = await supabase.rpc("admin_save_payment_account", {
-      p_id: form.id || null,
-      p_bank_name: form.bank_name.trim(),
-      p_account_number: form.account_number.trim(),
-      p_account_name: form.account_name.trim(),
-      p_label: form.label.trim() || null,
-      p_note: form.note.trim() || null,
-      p_active: form.active,
-      p_sort_order: Number(form.sort_order) || 0,
+    const res = await savePaymentAccount({
+      id: form.id || null,
+      bank_name: form.bank_name,
+      account_number: form.account_number,
+      account_name: form.account_name,
+      label: form.label,
+      note: form.note,
+      active: form.active,
+      sort_order: Number(form.sort_order) || 0,
     });
 
     setBusy(false);
-    if (error) {
-      setErr(error.message);
+    if (!res.ok) {
+      setErr(res.error ?? "Could not save the account.");
       return;
     }
     setOk(editing ? "Account updated." : "Account added.");
@@ -96,20 +99,19 @@ export function PaymentAccountsManager({ accounts }: { accounts: PaymentAccount[
   async function toggle(a: PaymentAccount) {
     setBusy(true);
     setErr("");
-    const supabase = createClient();
-    const { error } = await supabase.rpc("admin_save_payment_account", {
-      p_id: a.id,
-      p_bank_name: a.bank_name,
-      p_account_number: a.account_number,
-      p_account_name: a.account_name,
-      p_label: a.label,
-      p_note: a.note,
-      p_active: !a.active,
-      p_sort_order: a.sort_order,
+    const res = await savePaymentAccount({
+      id: a.id,
+      bank_name: a.bank_name,
+      account_number: a.account_number,
+      account_name: a.account_name,
+      label: a.label,
+      note: a.note,
+      active: !a.active,
+      sort_order: a.sort_order,
     });
     setBusy(false);
-    if (error) {
-      setErr(error.message);
+    if (!res.ok) {
+      setErr(res.error ?? "Could not update the account.");
       return;
     }
     router.refresh();
@@ -119,11 +121,10 @@ export function PaymentAccountsManager({ accounts }: { accounts: PaymentAccount[
     if (!confirm(`Remove ${a.bank_name} ${a.account_number}? Orders that used it keep their record.`)) return;
     setBusy(true);
     setErr("");
-    const supabase = createClient();
-    const { error } = await supabase.rpc("admin_delete_payment_account", { p_id: a.id });
+    const res = await deletePaymentAccount(a.id);
     setBusy(false);
-    if (error) {
-      setErr(error.message);
+    if (!res.ok) {
+      setErr(res.error ?? "Could not remove the account.");
       return;
     }
     router.refresh();
