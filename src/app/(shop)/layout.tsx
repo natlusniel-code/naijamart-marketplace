@@ -8,13 +8,12 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
   const session = await getSession();
   const supabase = createClient();
 
-  let chatCount = 0;
+  // Unread MESSAGES, not conversations — the old count never cleared after
+  // reading a chat. Backed by the unread_message_count() RPC (sql/0009).
+  let unread = 0;
   if (session) {
-    const { count } = await supabase
-      .from("chats")
-      .select("id", { count: "exact", head: true })
-      .or(`buyer_id.eq.${session.user.id},seller_id.eq.${session.user.id}`);
-    chatCount = count ?? 0;
+    const { data } = await supabase.rpc("unread_message_count");
+    unread = typeof data === "number" ? data : 0;
   }
 
   const city = session?.profile.city ?? "Abeokuta South";
@@ -60,7 +59,7 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
 
       <main className="mx-auto w-full max-w-7xl px-4 pb-24 pt-3 md:pb-10">{children}</main>
 
-      <TabBar chatCount={chatCount} />
+      <TabBar unread={unread} />
     </div>
   );
 }

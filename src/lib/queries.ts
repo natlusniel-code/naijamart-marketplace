@@ -41,6 +41,11 @@ export type ShopLite = {
   free_delivery_threshold: number | null;
 };
 
+export type Place = { city: string; state: string | null; shop_count: number };
+
+/** Sentinel used by the UI for "show me every city". */
+export const ALL_CITIES = "all";
+
 const SHOP_COLS =
   "id,name,slug,city,state,verified,rating_avg,rating_count,logo_url,banner_url,kind,category,status,subscription_status,description,pickup_available,delivery_fee,free_delivery_threshold";
 
@@ -72,7 +77,35 @@ export async function getSettings() {
   );
 }
 
-/** Fresh listings in a city, newest first. */
+/**
+ * Every city that has at least one approved shop, with a shop count.
+ * Backed by the `shop_locations` view (sql/0009) so the filter is a real
+ * list rather than a hardcoded one.
+ */
+export async function getPlaces(): Promise<Place[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("shop_locations")
+    .select("city,state,shop_count")
+    .order("shop_count", { ascending: false });
+  return (data ?? []) as Place[];
+}
+
+/**
+ * Resolve the city a listing query should be bound to.
+ *
+ * `requested` comes from the URL (?city=…). `ALL_CITIES` (or an empty
+ * string) means "browse everywhere" and returns null so the caller skips
+ * the filter. With no explicit choice we default to the buyer's own city,
+ * which is the behaviour the home page needs.
+ */
+export function resolveCity(requested: string | undefined, fallback: string | null): string | null {
+  if (requested === ALL_CITIES) return null;
+  if (requested && requested.trim()) return requested.trim();
+  return fallback;
+}
+
+/** Fresh listings in a city, newest first. `city === null` = all cities. */
 export async function getNewListings(city: string | null, limit = 8) {
   const supabase = createClient();
   let q = supabase
@@ -122,6 +155,7 @@ export async function getNearbyShops(city: string | null, limit = 6) {
 
 export async function searchListings(opts: {
   city?: string | null;
+  state?: string | null;
   q?: string;
   category?: string;
   min?: number;
@@ -140,7 +174,9 @@ export async function searchListings(opts: {
     .eq("shops.status", "approved");
 
   if (opts.type) query = query.eq("type", opts.type);
+  // city === null means "all cities" — no filter at all.
   if (opts.city) query = query.eq("shops.city", opts.city);
+  if (opts.state) query = query.eq("shops.state", opts.state);
   if (opts.q) query = query.ilike("title", `%${opts.q}%`);
   if (opts.category) query = query.eq("categories.slug", opts.category);
   if (typeof opts.min === "number") query = query.gte("price", opts.min);

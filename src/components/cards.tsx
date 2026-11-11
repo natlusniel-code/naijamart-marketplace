@@ -1,10 +1,29 @@
 import Link from "next/link";
 import { naira, cn } from "@/lib/utils";
-import { Star, VerifiedBadge, Avatar } from "@/components/ui";
+import { Star, VerifiedBadge } from "@/components/ui";
 import type { Listing, ShopLite } from "@/lib/queries";
+
+/** "Ikeja, Lagos" — the location line every card must show. */
+export function placeLabel(shop?: { city?: string | null; state?: string | null } | null): string | null {
+  if (!shop) return null;
+  const city = shop.city?.trim();
+  const state = shop.state?.trim();
+  if (city && state) return `${city}, ${state}`;
+  return city || state || null;
+}
+
+function PinIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 21s7-6.1 7-11a7 7 0 1 0-14 0c0 4.9 7 11 7 11Z" />
+      <circle cx="12" cy="10" r="2.5" />
+    </svg>
+  );
+}
 
 export function ListingCard({ l, className }: { l: Listing; className?: string }) {
   const img = l.images?.[0];
+  const place = placeLabel(l.shops);
   return (
     <Link
       href={`/listing/${l.id}`}
@@ -20,6 +39,13 @@ export function ListingCard({ l, className }: { l: Listing; className?: string }
         {l.type === "service" && (
           <span className="absolute left-2 top-2 rounded-full bg-ink-900/80 px-2 py-0.5 text-[10.5px] font-semibold text-white">
             Service
+          </span>
+        )}
+        {/* location badge — always visible so the buyer knows where it ships from */}
+        {place && (
+          <span className="absolute bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-[10.5px] font-semibold text-ink-700 shadow-sm backdrop-blur">
+            <PinIcon className="h-3 w-3 shrink-0 text-brand-600" />
+            <span className="truncate">{place}</span>
           </span>
         )}
         {l.stock === 0 && l.type === "product" && (
@@ -41,12 +67,20 @@ export function ListingCard({ l, className }: { l: Listing; className?: string }
             <svg viewBox="0 0 24 24" className="h-3 w-3 shrink-0 text-brand-600" fill="currentColor"><path d="M12 2 15.1 4.6l4.1.2.2 4.1L22 12l-2.6 3.1-.2 4.1-4.1.2L12 22l-3.1-2.6-4.1-.2-.2-4.1L2 12l2.6-3.1.2-4.1 4.1-.2L12 2Z" opacity=".2" /><path d="m10.6 14.6-2.2-2.2 1.1-1.1 1.1 1.1 3.9-3.9 1.1 1.1-5 5Z" /></svg>
           )}
         </div>
+        {/* second, textual location line — readable even when the image fails */}
+        {place && (
+          <p className="mt-1 flex items-center gap-1 text-[11px] text-ink-400">
+            <PinIcon className="h-3 w-3 shrink-0" />
+            <span className="truncate">{place}</span>
+          </p>
+        )}
       </div>
     </Link>
   );
 }
 
 export function ShopCard({ s }: { s: ShopLite }) {
+  const place = placeLabel(s);
   return (
     <Link
       href={`/shop/${s.slug}`}
@@ -77,7 +111,12 @@ export function ShopCard({ s }: { s: ShopLite }) {
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
           {s.verified && <VerifiedBadge />}
-          <span className="text-[11px] text-ink-400">{s.city}</span>
+          {place && (
+            <span className="inline-flex items-center gap-0.5 text-[11px] text-ink-400">
+              <PinIcon className="h-2.5 w-2.5" />
+              {place}
+            </span>
+          )}
         </div>
       </div>
     </Link>

@@ -26,10 +26,23 @@ export default async function ChatPage({ params }: { params: { id: string } }) {
   const amSeller = c.seller_id === uid;
   const otherId = amSeller ? c.buyer_id : c.seller_id;
 
+  // Opening the thread marks the other side's messages as seen. This is what
+  // flips the sender's single tick to a double tick, and it also clears the
+  // unread badge before the page is painted.
+  await supabase.rpc("mark_chat_read", { p_chat_id: params.id });
+
   const [{ data: other }, { data: messages }, { data: offers }] = await Promise.all([
     supabase.from("profiles_public").select("full_name,avatar_url").eq("id", otherId).maybeSingle(),
-    supabase.from("messages").select("id,sender_id,body,image_url,created_at").eq("chat_id", params.id).order("created_at"),
-    supabase.from("offers").select("id,price,scope,timeline,status,seller_id,created_at").eq("chat_id", params.id).order("created_at"),
+    supabase
+      .from("messages")
+      .select("id,sender_id,body,image_url,created_at,read_at,delivered_at")
+      .eq("chat_id", params.id)
+      .order("created_at"),
+    supabase
+      .from("offers")
+      .select("id,price,scope,timeline,status,seller_id,image_url,created_at")
+      .eq("chat_id", params.id)
+      .order("created_at"),
   ]);
 
   return (

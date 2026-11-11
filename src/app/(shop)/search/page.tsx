@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getSession } from "@/lib/supabase/server";
-import { searchListings, getCategories } from "@/lib/queries";
+import { searchListings, getCategories, getPlaces, resolveCity, ALL_CITIES } from "@/lib/queries";
 import { ListingCard } from "@/components/cards";
+import { LocationFilter } from "@/components/location-filter";
 import { EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
@@ -15,10 +16,16 @@ type SP = {
 
 export default async function SearchPage({ searchParams }: { searchParams: SP }) {
   const session = await getSession();
-  const city = searchParams.city ?? session?.profile.city ?? "Abeokuta South";
+  const myCity = session?.profile.city ?? null;
 
-  const [cats, results] = await Promise.all([
+  // Same rule as the home page: default to the buyer's city, ?city=all
+  // removes the filter so every city is browsable.
+  const city = resolveCity(searchParams.city, myCity);
+  const browsingAll = city === null;
+
+  const [cats, places, results] = await Promise.all([
     getCategories(),
+    getPlaces(),
     searchListings({
       city,
       q: searchParams.q,
@@ -48,12 +55,31 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
     <div className="space-y-4">
       <form action="/search" className="flex gap-2">
         {searchParams.type && <input type="hidden" name="type" value={searchParams.type} />}
+        {searchParams.city && <input type="hidden" name="city" value={searchParams.city} />}
         <div className="relative flex-1">
           <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
           <input name="q" defaultValue={searchParams.q ?? ""} placeholder="Search goods, services, shops…" className="nm-input !py-3 pl-10" aria-label="Search query" />
         </div>
         <button className="nm-btn-primary !px-4">Search</button>
       </form>
+
+      {/* location filter */}
+      <LocationFilter
+        places={places}
+        activeCity={city}
+        myCity={myCity}
+        basePath="/search"
+        params={{
+          q: searchParams.q,
+          category: searchParams.category,
+          type: searchParams.type,
+          verified: searchParams.verified,
+          pickup: searchParams.pickup,
+          rating: searchParams.rating,
+          max: searchParams.max,
+          sort: searchParams.sort,
+        }}
+      />
 
       {/* category chips */}
       <div className="nm-scroll -mx-4 flex gap-2 overflow-x-auto px-4">
@@ -90,7 +116,7 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
 
       <div className="flex items-center justify-between gap-3 border-t border-[var(--line)] pt-3">
         <p className="text-[13px] font-semibold text-ink-700">
-          {results.length} {results.length === 1 ? "item" : "items"} in {city}
+          {results.length} {results.length === 1 ? "item" : "items"} in {browsingAll ? "all cities" : city}
           {searchParams.q && <span className="font-normal text-ink-400"> for “{searchParams.q}”</span>}
         </p>
         <div className="flex items-center gap-1.5">
@@ -105,9 +131,13 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
         <EmptyState
           icon="🔍"
           title="Nothing matched that search"
-          body={`We couldn't find live listings in ${city} with those filters. Try widening the price range or clearing a filter.`}
-          action="Clear all filters"
-          href="/search"
+          body={
+            browsingAll
+              ? "We couldn't find live listings with those filters. Try widening the price range or clearing a filter."
+              : `We couldn't find live listings in ${city} with those filters. Try another city, browse all cities, or clear a filter.`
+          }
+          action={browsingAll ? "Clear all filters" : "Browse all cities"}
+          href={browsingAll ? "/search" : `/search?city=${ALL_CITIES}`}
         />
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

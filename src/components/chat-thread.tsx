@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
@@ -13,6 +13,11 @@ type Msg = {
   body: string | null;
   image_url: string | null;
   created_at: string;
+  read_at?: string | null;
+  delivered_at?: string | null;
+  /** client-only: rendered before the server confirms, replaced by the real row */
+  pending?: boolean;
+  failed?: boolean;
 };
 
 type Offer = {
@@ -22,8 +27,36 @@ type Offer = {
   timeline: string | null;
   status: "pending" | "accepted" | "declined";
   seller_id: string;
+  image_url?: string | null;
   created_at: string;
 };
+
+/** A locally-generated id for an optimistic row. Never sent to the server. */
+const tempId = () => `tmp-${crypto.randomUUID()}`;
+
+function Ticks({ read }: { read: boolean }) {
+  // Single tick = sent (not seen yet). Double tick = seen.
+  return (
+    <span
+      className="ml-1 inline-flex items-center align-middle"
+      aria-label={read ? "Seen" : "Sent, not seen yet"}
+      title={read ? "Seen" : "Sent"}
+    >
+      <svg
+        viewBox="0 0 16 11"
+        className="h-[9px] w-[13px]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="m1.5 6 2.6 2.7L9.4 2" />
+        {read && <path d="m6.4 6.2 2.6 2.7L14.3 2" />}
+      </svg>
+    </span>
+  );
+}
 
 export function ChatThread({
   chatId,
@@ -56,14 +89,28 @@ export function ChatThread({
   const [uploading, setUploading] = useState(false);
   const [offerOpen, setOfferOpen] = useState(false);
   const [offer, setOffer] = useState({ price: "", scope: "", timeline: "" });
+  const [offerImage, setOfferImage] = useState<{ file: File; preview: string } | null>(null);
+  /** image chosen but NOT sent yet — confirm before it leaves (item 5) */
+  const [pendingImage, setPendingImage] = useState<{ file: File; preview: string } | null>(null);
   const [err, setErr] = useState("");
   const bottom = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+  const scrollDown = useCallback(() => {
+    requestAnimationFrame(() => bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+  }, []);
 
-  // live updates
+  useEffect(() => {
+    scrollDown();
+  }, [messages.length, scrollDown]);
+
+  /* ------------------------------------------------------------------
+   * Realtime.
+   *
+   * sql/0009 adds messages/offers/chats to the `supabase_realtime`
+   * publication. Before that the publication was empty, so none of these
+   * handlers ever fired — the root cause of "a sent message only appears
+   * after leaving and re-entering the chat".
+   * ------------------------------------------------------------------ */
   useEffect(() => {
     const supabase = createClient();
     const ch = supabase
@@ -73,43 +120,139 @@ export function ChatThread({
         { event: "INSERT", schema: "public", table: "messages", filter: `chat_id=eq.${chatId}` },
         (payload) => {
           const m = payload.new as Msg;
-          setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+          setMessages((prev) => {
+            if (prev.some((x) => x.id === m.id)) return prev;
+            // Drop the optimistic twin, matched by sender + payload because
+            // the local row has no server id.
+            const withoutPending = prev.filter(
+              (x) => !(x.pending && x.sender_id === m.sender_id && x.body === m.body && x.image_url === m.image_url),
+            );
+            return [...withoutPending, m];
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages", filter: `chat_id=eq.${chatId}` },
+        (payload) => {
+          // flips the tick the moment the other side opens the chat
+          const m = payload.new as Msg;
+          setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, ...m } : x)));
         },
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "offers", filter: `chat_id=eq.${chatId}` },
-        () => router.refresh(),
+        (payload) => {
+          const row = payload.new as Offer;
+          if (payload.eventType === "INSERT" && row?.id) {
+            setOffers((prev) => (prev.some((o) => o.id === row.id) ? prev : [...prev, row]));
+          } else if (payload.eventType === "UPDATE" && row?.id) {
+            setOffers((prev) => prev.map((o) => (o.id === row.id ? { ...o, ...row } : o)));
+          } else {
+            router.refresh();
+          }
+        },
       )
       .subscribe();
+
     return () => {
       supabase.removeChannel(ch);
     };
   }, [chatId, router]);
 
+  /* ------------------------------------------------------------------
+   * Read receipts. Opening the chat (or receiving while it is open) marks
+   * the other side's messages seen, flipping their tick to a double tick.
+   * ------------------------------------------------------------------ */
+  const incomingCount = messages.filter((m) => m.sender_id !== meId && !m.pending).length;
+  useEffect(() => {
+    if (!incomingCount) return;
+    const supabase = createClient();
+    supabase.rpc("mark_chat_read", { p_chat_id: chatId }).then(({ error }) => {
+      if (!error) router.refresh();
+    });
+  }, [chatId, incomingCount, router]);
+
   async function send(e?: React.FormEvent) {
     e?.preventDefault();
     const body = text.trim();
     if (!body) return;
-    setBusy(true);
-    setErr("");
-    const supabase = createClient();
-    const { error } = await supabase.from("messages").insert({ chat_id: chatId, sender_id: meId, body });
-    setBusy(false);
-    if (error) { setErr(error.message); return; }
+
+    // Optimistic: render immediately, reconcile when the server answers.
+    const optimistic: Msg = {
+      id: tempId(),
+      sender_id: meId,
+      body,
+      image_url: null,
+      created_at: new Date().toISOString(),
+      pending: true,
+    };
+    setMessages((prev) => [...prev, optimistic]);
     setText("");
+    setErr("");
+    setBusy(true);
+
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({ chat_id: chatId, sender_id: meId, body })
+      .select("id,sender_id,body,image_url,created_at,read_at,delivered_at")
+      .single();
+
+    setBusy(false);
+    if (error) {
+      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false, failed: true } : m)));
+      setErr(error.message);
+      return;
+    }
+    setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? (data as Msg) : m)));
   }
 
-  async function sendImage(file: File) {
+  /** Step 1 of an image send: stage it. Nothing is uploaded or sent yet. */
+  function stageImage(file: File) {
+    if (!file.type.startsWith("image/")) {
+      setErr("That file isn't an image.");
+      return;
+    }
+    setErr("");
+    setPendingImage({ file, preview: URL.createObjectURL(file) });
+  }
+
+  function cancelImage() {
+    if (pendingImage) URL.revokeObjectURL(pendingImage.preview);
+    setPendingImage(null);
+  }
+
+  /** Step 2: the user pressed Send in the preview. */
+  async function confirmImage() {
+    if (!pendingImage) return;
+    const { file, preview } = pendingImage;
     setUploading(true);
     setErr("");
     try {
       const url = await uploadToBucket(file, `chat/${chatId}`);
+      const optimistic: Msg = {
+        id: tempId(),
+        sender_id: meId,
+        body: null,
+        image_url: preview,
+        created_at: new Date().toISOString(),
+        pending: true,
+      };
+      setMessages((prev) => [...prev, optimistic]);
+      setPendingImage(null);
+
       const supabase = createClient();
-      const { error } = await supabase.from("messages").insert({ chat_id: chatId, sender_id: meId, image_url: url });
+      const { data, error } = await supabase
+        .from("messages")
+        .insert({ chat_id: chatId, sender_id: meId, image_url: url })
+        .select("id,sender_id,body,image_url,created_at,read_at,delivered_at")
+        .single();
       if (error) throw new Error(error.message);
+      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? (data as Msg) : m)));
     } catch (e: any) {
-      setErr(e.message);
+      setErr(e.message ?? "Could not send that image.");
     }
     setUploading(false);
   }
@@ -117,33 +260,64 @@ export function ChatThread({
   async function sendOffer(e: React.FormEvent) {
     e.preventDefault();
     const price = Number(offer.price);
-    if (!price || price <= 0) { setErr("Enter a price for the offer."); return; }
+    if (!price || price <= 0) {
+      setErr("Enter a price for the offer.");
+      return;
+    }
     setBusy(true);
     setErr("");
-    const supabase = createClient();
-    const { data: chat } = await supabase.from("chats").select("buyer_id").eq("id", chatId).single();
-    const { error } = await supabase.from("offers").insert({
-      chat_id: chatId,
-      seller_id: meId,
-      buyer_id: chat!.buyer_id,
-      price,
-      scope: offer.scope || null,
-      timeline: offer.timeline || null,
-    });
+    try {
+      let imageUrl: string | null = null;
+      if (offerImage) imageUrl = await uploadToBucket(offerImage.file, `offers/${chatId}`);
+
+      const supabase = createClient();
+      // The buyer comes from the chat; the RLS insert policy re-checks it.
+      const { data: chat, error: chatErr } = await supabase
+        .from("chats")
+        .select("buyer_id")
+        .eq("id", chatId)
+        .single();
+      if (chatErr) throw new Error(chatErr.message);
+
+      const { data, error } = await supabase
+        .from("offers")
+        .insert({
+          chat_id: chatId,
+          seller_id: meId,
+          buyer_id: chat.buyer_id,
+          price,
+          scope: offer.scope || null,
+          timeline: offer.timeline || null,
+          image_url: imageUrl,
+        })
+        .select("id,price,scope,timeline,status,seller_id,image_url,created_at")
+        .single();
+      if (error) throw new Error(error.message);
+
+      if (data) setOffers((prev) => (prev.some((o) => o.id === data.id) ? prev : [...prev, data as Offer]));
+      setOfferOpen(false);
+      setOffer({ price: "", scope: "", timeline: "" });
+      if (offerImage) URL.revokeObjectURL(offerImage.preview);
+      setOfferImage(null);
+      router.refresh();
+    } catch (e: any) {
+      setErr(e.message ?? "Could not send the offer.");
+    }
     setBusy(false);
-    if (error) { setErr(error.message); return; }
-    setOfferOpen(false);
-    setOffer({ price: "", scope: "", timeline: "" });
-    router.refresh();
   }
 
   async function acceptOffer(id: string) {
     setBusy(true);
+    setErr("");
     const supabase = createClient();
     const { data, error } = await supabase.rpc("accept_offer", { p_offer_id: id });
     setBusy(false);
-    if (error) { setErr(error.message); return; }
+    if (error) {
+      setErr(error.message);
+      return;
+    }
     const row = Array.isArray(data) ? data[0] : data;
+    setOffers((prev) => prev.map((o) => (o.id === id ? { ...o, status: "accepted" } : o)));
     router.push(`/orders/${row.id}`);
   }
 
@@ -189,12 +363,13 @@ export function ChatThread({
 
         {messages.map((m) => {
           const mine = m.sender_id === meId;
+          const seen = !!m.read_at;
           return (
             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
               <div
                 className={`max-w-[78%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed ${
                   mine ? "bg-brand-500 text-white" : "bg-white text-ink-900 shadow-card"
-                }`}
+                } ${m.failed ? "opacity-60 ring-1 ring-red-400" : ""}`}
               >
                 {m.image_url && (
                   <a href={m.image_url} target="_blank" rel="noreferrer" className="mb-1 block">
@@ -203,7 +378,12 @@ export function ChatThread({
                   </a>
                 )}
                 {m.body && <p className="whitespace-pre-line">{m.body}</p>}
-                <p className={`mt-1 text-[10px] ${mine ? "text-white/60" : "text-ink-400"}`}>{relTime(m.created_at)}</p>
+                <p className={`mt-1 flex items-center gap-1 text-[10px] ${mine ? "justify-end text-white/60" : "text-ink-400"}`}>
+                  {relTime(m.created_at)}
+                  {m.pending && <span className="opacity-70">· sending…</span>}
+                  {m.failed && <span className="text-red-200">· failed</span>}
+                  {mine && !m.pending && !m.failed && <Ticks read={seen} />}
+                </p>
               </div>
             </div>
           );
@@ -218,6 +398,12 @@ export function ChatThread({
                 {o.status === "accepted" ? "Accepted" : o.status === "declined" ? "Declined" : "Awaiting buyer"}
               </Badge>
             </div>
+            {o.image_url && (
+              <a href={o.image_url} target="_blank" rel="noreferrer" className="mt-2 block">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={o.image_url} alt="Offer attachment" className="max-h-44 w-full rounded-lg object-cover" />
+              </a>
+            )}
             <p className="mt-1 text-[20px] font-extrabold text-ink-900">{naira(o.price)}</p>
             {o.scope && <p className="text-[12.5px] text-ink-600">Scope: {o.scope}</p>}
             {o.timeline && <p className="text-[12.5px] text-ink-600">Timeline: {o.timeline}</p>}
@@ -236,6 +422,28 @@ export function ChatThread({
 
       {err && <p className="pb-1 text-[11.5px] font-medium text-red-600">{err}</p>}
 
+      {/* image preview — confirm before it is sent (item 5) */}
+      {pendingImage && (
+        <div className="mb-2 rounded-xl border border-brand-500/30 bg-white p-3 shadow-card">
+          <div className="flex items-center justify-between pb-2">
+            <p className="text-[12.5px] font-bold text-ink-900">Send this photo?</p>
+            <button type="button" onClick={cancelImage} className="text-[11.5px] font-semibold text-ink-400 hover:text-ink-700">
+              Remove
+            </button>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={pendingImage.preview} alt="Preview" className="max-h-52 w-full rounded-lg object-cover" />
+          <div className="mt-2 flex gap-2">
+            <button type="button" onClick={confirmImage} disabled={uploading} className="nm-btn-primary flex-1 !py-2">
+              {uploading ? <><Spinner /> Sending…</> : "Send photo"}
+            </button>
+            <button type="button" onClick={cancelImage} disabled={uploading} className="nm-btn-ghost !py-2">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* offer composer (seller) */}
       {offerOpen && amSeller && (
         <form onSubmit={sendOffer} className="mb-2 space-y-2 rounded-xl border border-[var(--line)] bg-white p-3 shadow-card">
@@ -246,6 +454,28 @@ export function ChatThread({
             onChange={(e) => setOffer((o) => ({ ...o, scope: e.target.value }))} />
           <input className="nm-input !py-2 !text-[13px]" placeholder="Timeline, e.g. 2 days" value={offer.timeline}
             onChange={(e) => setOffer((o) => ({ ...o, timeline: e.target.value }))} />
+
+          {/* optional photo on the offer (item 7) */}
+          {offerImage ? (
+            <div className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={offerImage.preview} alt="Offer attachment" className="max-h-36 w-full rounded-lg object-cover" />
+              <button type="button" onClick={() => { URL.revokeObjectURL(offerImage.preview); setOfferImage(null); }}
+                className="absolute right-2 top-2 rounded-full bg-ink-900/70 px-2 py-0.5 text-[10.5px] font-semibold text-white">
+                Remove
+              </button>
+            </div>
+          ) : (
+            <label className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--line)] py-2 text-[11.5px] font-semibold text-ink-500 hover:border-brand-300 hover:text-brand-600">
+              🖼️ Add a photo (optional)
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setOfferImage({ file: f, preview: URL.createObjectURL(f) });
+                e.currentTarget.value = "";
+              }} />
+            </label>
+          )}
+
           <div className="flex gap-2">
             <button type="submit" disabled={busy} className="nm-btn-primary flex-1 !py-2">{busy ? <Spinner /> : "Send offer"}</button>
             <button type="button" onClick={() => setOfferOpen(false)} className="nm-btn-ghost !py-2">Cancel</button>
@@ -257,7 +487,8 @@ export function ChatThread({
       <form onSubmit={send} className="flex items-center gap-1.5 border-t border-[var(--line)] bg-white pt-2">
         <label className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-xl text-ink-400 hover:bg-slate-50 hover:text-brand-600">
           {uploading ? <Spinner className="!h-4 !w-4" /> : "📎"}
-          <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && sendImage(e.target.files[0])} />
+          <input type="file" accept="image/*" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) stageImage(f); e.currentTarget.value = ""; }} />
         </label>
         {amSeller && (
           <button type="button" onClick={() => setOfferOpen((o) => !o)}

@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 const ITEMS = [
   { href: "/", label: "Home", icon: "home" },
@@ -29,14 +31,62 @@ function Icon({ name, active }: { name: string; active: boolean }) {
   }
 }
 
-export function TabBar({ cartCount = 0, chatCount = 0 }: { cartCount?: number; chatCount?: number }) {
+/**
+ * Bottom tab bar.
+ *
+ * `unread` is the number of UNREAD MESSAGES (not chats) — the old badge
+ * counted conversations, so it never went away after reading one. It is
+ * cleared the instant a chat is opened and kept live by a Realtime
+ * subscription on `messages` (the table is in the supabase_realtime
+ * publication as of sql/0009).
+ */
+export function TabBar({ cartCount = 0, unread = 0 }: { cartCount?: number; unread?: number }) {
   const path = usePathname() || "/";
+  const [count, setCount] = useState(unread);
+  const inChat = path.startsWith("/chats");
+
+  // Server-rendered value wins whenever the layout re-renders.
+  useEffect(() => {
+    setCount(unread);
+  }, [unread]);
+
+  // Opening any chat clears the badge immediately, before the round trip.
+  useEffect(() => {
+    if (inChat) setCount(0);
+  }, [inChat, path]);
+
+  // Live updates: a new message bumps the badge, a read receipt clears it.
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+
+    const refresh = async () => {
+      const { data } = await supabase.rpc("unread_message_count");
+      if (!cancelled && typeof data === "number") setCount(data);
+    };
+
+    const ch = supabase
+      .channel("tabbar-unread")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, () => {
+        if (!inChat) refresh();
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, () => {
+        if (!inChat) refresh();
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(ch);
+    };
+  }, [inChat]);
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--line)] bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:sticky md:top-0 md:border-b md:border-t-0">
       <div className="mx-auto flex max-w-7xl items-center justify-around md:justify-start md:gap-1 md:px-4">
         {ITEMS.map((it) => {
           const active = it.href === "/" ? path === "/" : path.startsWith(it.href);
-          const badge = it.href === "/chats" ? chatCount : 0;
+          const badge = it.href === "/chats" ? count : 0;
           return (
             <Link
               key={it.href}
@@ -48,7 +98,6 @@ export function TabBar({ cartCount = 0, chatCount = 0 }: { cartCount?: number; c
             >
               <span className="relative">
                 <Icon name={it.icon} active={active} />
-                {it.href === "/carts" && cartCount > 0 && null}
                 {badge > 0 && (
                   <span className="absolute -right-2 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[9.5px] font-bold text-white">
                     {badge > 9 ? "9+" : badge}

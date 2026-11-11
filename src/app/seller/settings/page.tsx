@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { getSession, createClient } from "@/lib/supabase/server";
 import { naira, shortDate } from "@/lib/utils";
 import { Card, Badge, Alert } from "@/components/ui";
 import { ShopSettingsForm } from "@/components/seller/shop-settings-form";
+import { CopyLinkButton } from "@/components/copy-link-button";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Shop settings" };
@@ -15,6 +17,16 @@ export default async function ShopSettingsPage() {
   const supabase = createClient();
   const { data: shop } = await supabase.from("shops").select("*").eq("id", session.shop.id).single();
   if (!shop) redirect("/seller/onboarding");
+
+  // Absolute URL on whatever host is serving this page, so the copied link
+  // opens the real public shop page anywhere (WhatsApp, Instagram, a
+  // different device). Falls back to the production domain when the host
+  // header is unavailable.
+  const h = headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
+  const origin = host ? `${proto}://${host}` : "https://naijamart-marketplace-n.vercel.app";
+  const shopUrl = `${origin}/shop/${shop.slug}`;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -46,9 +58,20 @@ export default async function ShopSettingsPage() {
       <Card className="p-4">
         <p className="text-[13.5px] font-bold text-ink-900">Shareable shop link</p>
         <p className="mt-1 text-[12px] text-ink-500">Send this to customers on WhatsApp or Instagram — they can browse without an account.</p>
-        <code className="mt-2 block break-all rounded-xl bg-slate-50 px-3 py-2 font-mono text-[11.5px] text-ink-700">
-          {typeof process !== "undefined" ? "" : ""}/shop/{shop.slug}
-        </code>
+        <div className="mt-2 flex items-center gap-2">
+          <code className="min-w-0 flex-1 break-all rounded-xl bg-slate-50 px-3 py-2 font-mono text-[11.5px] text-ink-700">
+            {shopUrl}
+          </code>
+          <CopyLinkButton url={shopUrl} />
+        </div>
+        <a
+          href={shopUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-block text-[12px] font-semibold text-brand-600"
+        >
+          Open my shop page ↗
+        </a>
       </Card>
     </div>
   );
