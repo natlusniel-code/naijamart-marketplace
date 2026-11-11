@@ -2,13 +2,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSession } from "@/lib/supabase/server";
 import { getListing, getShopReviews, getShopListings } from "@/lib/queries";
-import { naira, cn } from "@/lib/utils";
+import { naira, cn, discountPercent } from "@/lib/utils";
 import { Star, VerifiedBadge, Avatar, Badge, Alert } from "@/components/ui";
 import { AddToCartBar } from "@/components/add-to-cart-bar";
 import { ChatWithSeller } from "@/components/chat-with-seller";
 import { ListingCard } from "@/components/cards";
 import { QuoteForm } from "@/components/quote-form";
 import { Gallery } from "@/components/gallery";
+import { WishlistButton } from "@/components/wishlist-button";
+import { getWishlistIds } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,12 @@ export default async function ListingPage({ params }: { params: { id: string } }
   if (!l) notFound();
 
   const shop = l.shops!;
-  const [reviews, more] = await Promise.all([getShopReviews(shop.id, 4), getShopListings(shop.id)]);
+  const [reviews, more, savedIds] = await Promise.all([
+    getShopReviews(shop.id, 4),
+    getShopListings(shop.id),
+    session ? getWishlistIds(session.user.id) : Promise.resolve([] as string[]),
+  ]);
+  const saved = savedIds.includes(l.id);
   const isService = l.type === "service";
   const inStock = l.stock > 0 || isService;
 
@@ -134,6 +141,10 @@ export default async function ListingPage({ params }: { params: { id: string } }
           <PriceBlock l={l} shop={shop} />
         </div>
 
+        {/* wishlist — sits above the buy box so it is reachable on both
+            breakpoints without duplicating it into the sticky bar */}
+        <WishlistButton listingId={l.id} saved={saved} signedIn={!!session} variant="inline" />
+
         {/* shop card */}
         <div className="nm-card p-4">
           <div className="flex items-center gap-3">
@@ -178,7 +189,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
         ) : inStock ? (
           <div className="hidden lg:block">
             <AddToCartBar
-              listing={{ id: l.id, title: l.title, price: Number(l.price), images: l.images ?? [] }}
+              listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [] }}
               shop={{
                 id: shop.id, slug: shop.slug, name: shop.name, logo_url: shop.logo_url,
                 city: shop.city, state: shop.state, delivery_fee: Number(shop.delivery_fee),
@@ -201,7 +212,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
       {!isService && inStock && (
         <div className="lg:hidden">
           <AddToCartBar
-            listing={{ id: l.id, title: l.title, price: Number(l.price), images: l.images ?? [] }}
+            listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [] }}
             shop={{
               id: shop.id, slug: shop.slug, name: shop.name, logo_url: shop.logo_url,
               city: shop.city, state: shop.state, delivery_fee: Number(shop.delivery_fee),
@@ -226,16 +237,32 @@ export default async function ListingPage({ params }: { params: { id: string } }
 }
 
 function PriceBlock({ l, shop }: { l: any; shop: any }) {
+  const pct = discountPercent(Number(l.price), l.original_price);
   return (
     <div className="nm-card p-4">
       <div className="flex items-start justify-between gap-3">
         <h1 className="text-[19px] font-extrabold leading-snug tracking-tight text-ink-900">{l.title}</h1>
         <Badge tone={l.type === "service" ? "blue" : "gray"}>{l.type === "service" ? "Service" : "Product"}</Badge>
       </div>
-      <p className="mt-2 text-[26px] font-extrabold tracking-tight text-ink-900">
-        {naira(l.price)}
-        {l.type === "service" && <span className="ml-1.5 text-[12px] font-medium text-ink-400">starting price</span>}
-      </p>
+      <div className="mt-2 flex flex-wrap items-baseline gap-2">
+        <p className="text-[26px] font-extrabold tracking-tight text-ink-900">
+          {naira(l.price)}
+          {l.type === "service" && <span className="ml-1.5 text-[12px] font-medium text-ink-400">starting price</span>}
+        </p>
+        {pct > 0 && l.original_price != null && (
+          <>
+            <span className="text-[14px] font-medium text-ink-400 line-through">{naira(l.original_price)}</span>
+            <span className="rounded-full bg-red-500 px-2 py-0.5 text-[11.5px] font-bold text-white">
+              {Number.isInteger(pct) ? pct : pct.toFixed(1)}% off
+            </span>
+          </>
+        )}
+      </div>
+      {pct > 0 && l.original_price != null && (
+        <p className="mt-1 text-[12px] font-semibold text-brand-700">
+          You save {naira(Number(l.original_price) - Number(l.price))}
+        </p>
+      )}
       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
         {l.type === "product" ? (
           l.stock > 0 ? (

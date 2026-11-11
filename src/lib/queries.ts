@@ -10,6 +10,10 @@ export type Listing = {
   description: string | null;
   category_id: string | null;
   price: number;
+  /** The "was" price. Null when the seller is not running a discount. */
+  original_price: number | null;
+  /** Derived in the database from the two prices — never set by hand. */
+  discount_percent: number;
   stock: number;
   images: string[];
   status: string;
@@ -111,7 +115,7 @@ export async function getNewListings(city: string | null, limit = 8) {
   const supabase = createClient();
   let q = supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
     .eq("status", "live")
     .eq("type", "product")
     .eq("shops.status", "approved")
@@ -126,7 +130,7 @@ export async function getPopularServices(city: string | null, limit = 6) {
   const supabase = createClient();
   let q = supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
     .eq("status", "live")
     .eq("type", "service")
     .eq("shops.status", "approved")
@@ -170,7 +174,7 @@ export async function searchListings(opts: {
   const supabase = createClient();
   let query = supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
     .eq("status", "live")
     .eq("shops.status", "approved");
 
@@ -200,7 +204,7 @@ export async function getListing(id: string) {
   const supabase = createClient();
   const { data } = await supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
     .eq("id", id)
     .maybeSingle();
   return (data ?? null) as unknown as Listing | null;
@@ -220,7 +224,7 @@ export async function getShopListings(shopId: string) {
   const supabase = createClient();
   const { data } = await supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,categories(name,icon,slug)`)
     .eq("shop_id", shopId)
     .eq("status", "live")
     .order("created_at", { ascending: false });
@@ -259,6 +263,73 @@ export async function getMyOrders(userId: string, status?: string) {
   if (status && status !== "all") q = q.eq("status", status);
   const { data } = await q;
   return data ?? [];
+}
+
+/* ------------------------------------------------------------------ wishlist */
+
+/** The listing ids this buyer has saved. Used to paint the heart as filled. */
+export async function getWishlistIds(userId: string): Promise<string[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("wishlists")
+    .select("listing_id")
+    .eq("user_id", userId);
+  return (data ?? []).map((r: { listing_id: string }) => r.listing_id);
+}
+
+/**
+ * The buyer's saved listings, newest save first.
+ *
+ * A saved listing can go out of stock, be hidden, or have its shop suspended
+ * after it was saved. Those rows are still returned — the wishlist page shows
+ * them greyed out with "no longer available" rather than silently dropping
+ * them, because a buyer who saved something deserves to know it is gone
+ * instead of wondering where it went.
+ */
+export async function getWishlist(userId: string) {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("wishlists")
+    .select(
+      `created_at,listings(id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops(${SHOP_COLS}),categories(name,icon,slug))`,
+    )
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  return (data ?? []) as unknown as {
+    created_at: string;
+    listings: Listing | null;
+  }[];
+}
+
+/* -------------------------------------------------------------- notifications */
+
+export type Notification = {
+  id: string;
+  kind: "order" | "broadcast" | "system";
+  title: string;
+  body: string | null;
+  href: string | null;
+  order_id: string | null;
+  read_at: string | null;
+  created_at: string;
+};
+
+export async function getNotifications(userId: string, limit = 60): Promise<Notification[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("notifications")
+    .select("id,kind,title,body,href,order_id,read_at,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return (data ?? []) as Notification[];
+}
+
+export async function getUnreadNotificationCount(): Promise<number> {
+  const supabase = createClient();
+  const { data } = await supabase.rpc("unread_notification_count");
+  return typeof data === "number" ? data : 0;
 }
 
 export async function getOrder(id: string) {

@@ -7,6 +7,7 @@ import {
   getPopularServices,
   getPlaces,
   resolveCity,
+  getWishlistIds,
   ALL_CITIES,
 } from "@/lib/queries";
 import { ListingCard, ShopCard, placeLabel } from "@/components/cards";
@@ -28,13 +29,15 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
   const city = resolveCity(searchParams.city, null);
   const browsingAll = city === null;
 
-  const [categories, places, shops, products, services] = await Promise.all([
+  const [categories, places, shops, products, services, savedIds] = await Promise.all([
     getCategories(),
     getPlaces(),
     getNearbyShops(city, 6),
     getNewListings(city, 8),
     getPopularServices(city, 6),
+    session ? getWishlistIds(session.user.id) : Promise.resolve([] as string[]),
   ]);
+  const saved = new Set(savedIds);
 
   const nothingHere = shops.length === 0 && products.length === 0 && services.length === 0;
   const where = browsingAll ? "all cities" : city;
@@ -142,7 +145,9 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
             href={`/search${city ? `?city=${encodeURIComponent(city)}` : `?city=${ALL_CITIES}`}`}
           />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {products.map((l) => <ListingCard key={l.id} l={l} />)}
+            {products.map((l) => (
+              <ListingCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
+            ))}
           </div>
         </section>
       )}
