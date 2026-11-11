@@ -34,6 +34,8 @@ export function ListingForm({
     needs_home_visit: listing?.needs_home_visit ?? false,
   });
   const [images, setImages] = useState<string[]>(listing?.images ?? []);
+  const [tags, setTags] = useState<string[]>(listing?.tags ?? []);
+  const [tagDraft, setTagDraft] = useState("");
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
@@ -49,6 +51,40 @@ export function ListingForm({
     setUploading(false);
   }
 
+  const MAX_TAGS = 20;
+
+  /**
+   * Commit whatever is in the draft box as a tag.
+   *
+   * Called on comma, on Enter, and on blur — so a seller who types "Sofa"
+   * and then clicks away does not lose it. Normalisation (lowercase, trim,
+   * collapse spaces) matches the database trigger in sql/0015, so the chip
+   * the seller sees is the tag that gets stored and searched.
+   */
+  function commitTag(raw?: string) {
+    const value = (raw ?? tagDraft).replace(/,/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    setTagDraft("");
+    if (!value) return;
+    setTags((current) => {
+      if (current.includes(value)) return current;
+      if (current.length >= MAX_TAGS) {
+        setErr(`You can add up to ${MAX_TAGS} tags. Remove one to add another.`);
+        return current;
+      }
+      return [...current, value];
+    });
+  }
+
+  function onTagKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "," || e.key === "Enter") {
+      e.preventDefault();
+      commitTag();
+    } else if (e.key === "Backspace" && !tagDraft && tags.length > 0) {
+      // Backspace on an empty box removes the last chip — the usual chip UX.
+      setTags((t) => t.slice(0, -1));
+    }
+  }
+
   function validate() {
     if (form.title.trim().length < 3) return "Give the listing a title.";
     if (!form.price || Number(form.price) <= 0) return "Enter a price above zero.";
@@ -58,12 +94,19 @@ export function ListingForm({
     if (form.original_price && Number(form.original_price) < Number(form.price)) {
       return "The original price must be at least the price you are selling at.";
     }
+    if (tags.length > MAX_TAGS) return `You can add up to ${MAX_TAGS} tags.`;
     return "";
   }
 
   async function save(status: "live" | "draft") {
     const v = validate();
     if (v) { setErr(v); return; }
+    // A tag still sitting in the draft box when the seller hits Publish is
+    // a tag they meant to add. Fold it in rather than dropping it.
+    const pending = tagDraft.replace(/,/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    const finalTags = pending && !tags.includes(pending) && tags.length < MAX_TAGS
+      ? [...tags, pending]
+      : tags;
     setBusy(status);
     setErr("");
     const supabase = createClient();
@@ -74,6 +117,7 @@ export function ListingForm({
       title: form.title.trim(),
       description: form.description || null,
       category_id: form.category_id || null,
+      tags: finalTags,
       price: Number(form.price),
       original_price: form.original_price ? Number(form.original_price) : null,
       stock: type === "product" ? Number(form.stock) : 0,
@@ -216,6 +260,70 @@ export function ListingForm({
               </label>
             </div>
           )}
+
+          {/* ---------------------------------------------------------------
+              Tags. These are what search actually matches on, so a listing
+              titled "LG 7kg Front Load Washer" is findable by "washing
+              machine". Comma (or Enter) commits a chip; max 20, enforced
+              here and again by the database.
+             --------------------------------------------------------------- */}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="nm-label !mb-0">Search tags</label>
+              <span className="text-[11px] text-ink-400">{tags.length}/{MAX_TAGS}</span>
+            </div>
+
+            {tags.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {tags.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-[11.5px] font-semibold text-brand-800"
+                  >
+                    {t}
+                    <button
+                      type="button"
+                      onClick={() => setTags((list) => list.filter((x) => x !== t))}
+                      aria-label={`Remove tag ${t}`}
+                      className="grid h-3.5 w-3.5 place-items-center rounded-full bg-brand-200/70 text-[9px] leading-none text-brand-900 hover:bg-brand-300"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <input
+              className="nm-input mt-1.5"
+              value={tagDraft}
+              disabled={tags.length >= MAX_TAGS}
+              onChange={(e) => {
+                const v = e.target.value;
+                // Typing a comma commits immediately, so "Sofa," becomes a
+                // chip without the seller reaching for Enter.
+                if (v.includes(",")) {
+                  v.split(",").forEach((part, i, arr) => {
+                    if (i < arr.length - 1) commitTag(part);
+                    else setTagDraft(part);
+                  });
+                } else {
+                  setTagDraft(v);
+                }
+              }}
+              onKeyDown={onTagKeyDown}
+              onBlur={() => commitTag()}
+              placeholder={
+                tags.length >= MAX_TAGS
+                  ? `Maximum ${MAX_TAGS} tags reached`
+                  : "e.g. washing machine, home appliance — press comma to add"
+              }
+            />
+            <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
+              Buyers find you by these words. Add what someone would type to look for this —
+              brand, type, colour, size. Up to {MAX_TAGS}.
+            </p>
+          </div>
 
           {/* images */}
           <div>

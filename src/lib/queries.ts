@@ -9,6 +9,11 @@ export type Listing = {
   title: string;
   description: string | null;
   category_id: string | null;
+  /**
+   * Seller-supplied search tags. Normalised to lowercase, de-duplicated and
+   * capped at 20 by the database (sql/0015), so the UI can render them as-is.
+   */
+  tags: string[];
   price: number;
   /** The "was" price. Null when the seller is not running a discount. */
   original_price: number | null;
@@ -53,6 +58,16 @@ export const ALL_CITIES = "all";
 
 const SHOP_COLS =
   "id,name,slug,city,state,verified,rating_avg,rating_count,logo_url,banner_url,kind,category,status,subscription_status,description,pickup_available,delivery_fee,free_delivery_threshold";
+
+/**
+ * The columns every listing card needs, in one place.
+ *
+ * `tags` is included because the search RPC ranks on it and the listing page
+ * shows it; leaving it out of a select would silently drop the field from the
+ * typed result.
+ */
+const LISTING_COLS =
+  `id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`;
 
 export async function getCategories() {
   const supabase = createClient();
@@ -115,7 +130,7 @@ export async function getNewListings(city: string | null, limit = 8) {
   const supabase = createClient();
   let q = supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
     .eq("status", "live")
     .eq("type", "product")
     .eq("shops.status", "approved")
@@ -130,7 +145,7 @@ export async function getPopularServices(city: string | null, limit = 6) {
   const supabase = createClient();
   let q = supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
     .eq("status", "live")
     .eq("type", "service")
     .eq("shops.status", "approved")
@@ -158,6 +173,27 @@ export async function getNearbyShops(city: string | null, limit = 6) {
   })[];
 }
 
+/**
+ * Ranked search.
+ *
+ * The filtering and the ordering both happen in `search_listing_ids`
+ * (sql/0015), not here. Two bugs made that necessary:
+ *
+ *   1. Category filtering used `.eq("categories.slug", …)` on an embedded
+ *      resource. PostgREST applies that to the *joined* rows, so the parent
+ *      listing was never filtered — every listing came back and the
+ *      non-matching ones just had `categories: null`. The storefront showed
+ *      the whole catalogue no matter which category was clicked.
+ *   2. Search was `title ILIKE '%q%'` — one substring, one column. A listing
+ *      titled "LG 7kg Front Load Washer" was invisible to "washing machine",
+ *      and seller tags did not exist at all.
+ *
+ * The RPC resolves the category slug to an id and filters `category_id`
+ * directly, matches title + tags + description with a weighted tsvector plus
+ * a substring fallback, and returns ids in ranked order. This function then
+ * fetches the full rows the cards need and restores that order — PostgREST
+ * does not preserve the order of an `in()` list.
+ */
 export async function searchListings(opts: {
   city?: string | null;
   state?: string | null;
@@ -170,41 +206,94 @@ export async function searchListings(opts: {
   verifiedOnly?: boolean;
   sort?: string;
   type?: "product" | "service";
+  limit?: number;
 }) {
   const supabase = createClient();
-  let query = supabase
-    .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
-    .eq("status", "live")
-    .eq("shops.status", "approved");
 
-  if (opts.type) query = query.eq("type", opts.type);
-  // city === null means "all cities" — no filter at all.
-  if (opts.city) query = query.eq("shops.city", opts.city);
-  if (opts.state) query = query.eq("shops.state", opts.state);
-  if (opts.q) query = query.ilike("title", `%${opts.q}%`);
-  if (opts.category) query = query.eq("categories.slug", opts.category);
-  if (typeof opts.min === "number") query = query.gte("price", opts.min);
-  if (typeof opts.max === "number") query = query.lte("price", opts.max);
-  if (opts.minRating) query = query.gte("shops.rating_avg", opts.minRating);
-  if (opts.pickup) query = query.eq("shops.pickup_available", true);
-  if (opts.verifiedOnly) query = query.eq("shops.verified", true);
+  const { data: ranked, error } = await supabase.rpc("search_listing_ids", {
+    p_q: opts.q?.trim() || null,
+    p_category: opts.category || null,
+    p_city: opts.city || null,
+    p_type: opts.type ?? null,
+    p_min: typeof opts.min === "number" ? opts.min : null,
+    p_max: typeof opts.max === "number" ? opts.max : null,
+    p_min_rating: opts.minRating ?? null,
+    p_pickup: !!opts.pickup,
+    p_verified: !!opts.verifiedOnly,
+    p_sort: opts.sort || null,
+    p_limit: opts.limit ?? 60,
+    p_offset: 0,
+  });
 
-  switch (opts.sort) {
-    case "price_asc": query = query.order("price", { ascending: true }); break;
-    case "price_desc": query = query.order("price", { ascending: false }); break;
-    default: query = query.order("created_at", { ascending: false });
+  // A failed RPC must not look like "no results" — that is exactly how the
+  // original search bug presented itself to buyers.
+  if (error) {
+    console.error("search_listing_ids failed:", error.message);
+    return [] as Listing[];
   }
 
-  const { data } = await query.limit(60);
-  return (data ?? []) as unknown as Listing[];
+  const ids = (ranked ?? []).map((r: { id: string }) => r.id);
+  if (ids.length === 0) return [] as Listing[];
+
+  const { data } = await supabase
+    .from("listings")
+    .select(LISTING_COLS)
+    .in("id", ids);
+
+  const byId = new Map((data ?? []).map((l: any) => [l.id, l]));
+  return ids
+    .map((id: string) => byId.get(id))
+    .filter(Boolean) as unknown as Listing[];
+}
+
+/**
+ * The storefront feed: a balanced, daily-rotating mix of new, well-rated,
+ * best-selling and most-viewed listings.
+ *
+ * `storefront_feed` (sql/0015) interleaves the four buckets round-robin and
+ * re-seeds on the date, so page one is not permanently owned by whichever
+ * listings happen to be newest. `seed` is exposed for tests and for pinning
+ * a feed; production passes nothing and gets today's date.
+ */
+export async function getStorefrontFeed(
+  city: string | null,
+  type: "product" | "service" = "product",
+  limit = 8,
+  seed?: string,
+) {
+  const supabase = createClient();
+
+  const { data: ranked, error } = await supabase.rpc("storefront_feed", {
+    p_city: city || null,
+    p_type: type,
+    p_limit: limit,
+    p_seed: seed ?? null,
+  });
+
+  if (error) {
+    console.error("storefront_feed failed:", error.message);
+    return [] as Listing[];
+  }
+
+  const ids = (ranked ?? []).map((r: { id: string }) => r.id);
+  if (ids.length === 0) return [] as Listing[];
+
+  const { data } = await supabase
+    .from("listings")
+    .select(LISTING_COLS)
+    .in("id", ids);
+
+  const byId = new Map((data ?? []).map((l: any) => [l.id, l]));
+  return ids
+    .map((id: string) => byId.get(id))
+    .filter(Boolean) as unknown as Listing[];
 }
 
 export async function getListing(id: string) {
   const supabase = createClient();
   const { data } = await supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
     .eq("id", id)
     .maybeSingle();
   return (data ?? null) as unknown as Listing | null;
@@ -224,7 +313,7 @@ export async function getShopListings(shopId: string) {
   const supabase = createClient();
   const { data } = await supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,categories(name,icon,slug)`)
     .eq("shop_id", shopId)
     .eq("status", "live")
     .order("created_at", { ascending: false });
@@ -291,7 +380,7 @@ export async function getWishlist(userId: string) {
   const { data } = await supabase
     .from("wishlists")
     .select(
-      `created_at,listings(id,shop_id,type,title,description,category_id,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops(${SHOP_COLS}),categories(name,icon,slug))`,
+      `created_at,listings(id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops(${SHOP_COLS}),categories(name,icon,slug))`,
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });

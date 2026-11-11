@@ -52,6 +52,7 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
   };
 
   const activeCat = searchParams.category ?? "all";
+  const activeCatName = cats.find((c: { slug: string }) => c.slug === activeCat)?.name ?? null;
 
   return (
     <div className="space-y-4">
@@ -119,6 +120,7 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
       <div className="flex items-center justify-between gap-3 border-t border-[var(--line)] pt-3">
         <p className="text-[13px] font-semibold text-ink-700">
           {results.length} {results.length === 1 ? "item" : "items"} in {browsingAll ? "all cities" : city}
+          {activeCatName && <span className="font-normal text-ink-400"> in {activeCatName}</span>}
           {searchParams.q && <span className="font-normal text-ink-400"> for “{searchParams.q}”</span>}
         </p>
         <div className="flex items-center gap-1.5">
@@ -132,14 +134,20 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
       {results.length === 0 ? (
         <EmptyState
           icon="🔍"
-          title="Nothing matched that search"
-          body={
-            browsingAll
-              ? "We couldn't find live listings with those filters. Try widening the price range or clearing a filter."
-              : `We couldn't find live listings in ${city} with those filters. Try another city, browse all cities, or clear a filter.`
+          title={
+            activeCatName
+              ? `Nothing in ${activeCatName} yet`
+              : "Nothing matched that search"
           }
-          action={browsingAll ? "Clear all filters" : "Browse all cities"}
-          href={browsingAll ? "/search" : `/search?city=${ALL_CITIES}`}
+          body={
+            activeCatName
+              ? `No live listings in ${activeCatName}${browsingAll ? "" : ` in ${city}`} match those filters. Try clearing a filter, or browse every category.`
+              : browsingAll
+                ? "We couldn't find live listings with those filters. Try a different word, widen the price range, or clear a filter."
+                : `We couldn't find live listings in ${city} with those filters. Try another city, browse all cities, or clear a filter.`
+          }
+          action={activeCatName ? "Clear all filters" : browsingAll ? "Clear all filters" : "Browse all cities"}
+          href={activeCatName || browsingAll ? "/search" : `/search?city=${ALL_CITIES}`}
         />
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

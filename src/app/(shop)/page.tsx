@@ -3,8 +3,7 @@ import { getSession } from "@/lib/supabase/server";
 import {
   getCategories,
   getNearbyShops,
-  getNewListings,
-  getPopularServices,
+  getStorefrontFeed,
   getPlaces,
   resolveCity,
   getWishlistIds,
@@ -33,8 +32,11 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
     getCategories(),
     getPlaces(),
     getNearbyShops(city, 6),
-    getNewListings(city, 8),
-    getPopularServices(city, 6),
+    // Ranked + rotated daily by storefront_feed (sql/0015): a balanced mix of
+    // new, well-rated, best-selling and most-viewed listings rather than
+    // "the newest 8", which let the same listings own page one forever.
+    getStorefrontFeed(city, "product", 8),
+    getStorefrontFeed(city, "service", 6),
     session ? getWishlistIds(session.user.id) : Promise.resolve([] as string[]),
   ]);
   const saved = new Set(savedIds);
@@ -139,8 +141,8 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
       {products.length > 0 && (
         <section>
           <SectionHead
-            title={browsingAll ? "New on NaijaMart" : `New in ${city}`}
-            sub={browsingAll ? "Every city, newest first" : undefined}
+            title={browsingAll ? "Picked for you" : `Picked for you in ${city}`}
+            sub={browsingAll ? "Fresh finds, top rated and best sellers" : "Rotated daily across every city"}
             action="Browse all"
             href={`/search${city ? `?city=${encodeURIComponent(city)}` : `?city=${ALL_CITIES}`}`}
           />
