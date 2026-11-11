@@ -6,10 +6,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * Sellers belong in the Seller Hub, not the storefront — that is where their
  * orders, listings and payouts live. Buyers keep going to the marketplace.
  *
- * The check is deliberately server-truth based: we ask the database whether
- * this user owns a shop, rather than trusting a `role` claim in the JWT or in
- * `user_metadata`. A seller who signed up before the role column existed, or
- * whose metadata was never written, still gets routed correctly.
+ * ── Why this takes a `role` hint ─────────────────────────────────────────────
+ * The shop lookup alone is NOT enough, and that was the seller-signup bug:
+ * a brand-new seller has no `shops` row yet (the row is created in step 1 of
+ * onboarding), so `shop` came back null and every new seller was dumped on the
+ * storefront as if they were a buyer. The shop row only exists *after* the
+ * seller has started onboarding, so it can never answer "where does a seller
+ * who has not started yet go?".
+ *
+ * So: the shop is still the source of truth for an EXISTING seller (it knows
+ * whether they are mid-onboarding or approved), and the profile role is the
+ * fallback for a seller who has no shop yet. Both are server-side facts — the
+ * role comes from `public.profiles`, not from a JWT claim or `user_metadata`,
+ * which a client can write.
  *
  * Returns a path (never an absolute URL) so callers can prefix their own
  * origin.
@@ -18,6 +27,7 @@ export async function postAuthDestination(
   supabase: SupabaseClient,
   userId: string,
   requested?: string | null,
+  role?: string | null,
 ): Promise<string> {
   // An explicit, safe `next` always wins — the user asked for that page.
   if (requested && requested.startsWith("/") && !requested.startsWith("//")) {
@@ -35,6 +45,21 @@ export async function postAuthDestination(
     // the hub redirects there anyway, but going direct avoids a flash.
     return shop.status === "draft" ? "/seller/onboarding" : "/seller";
   }
+
+  // No shop yet. If this account is a seller, they are at step 0 of the
+  // business-details → plan payment → pending-approval flow, so send them
+  // there instead of the storefront.
+  let effectiveRole = role ?? null;
+  if (!effectiveRole) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle();
+    effectiveRole = profile?.role ?? null;
+  }
+
+  if (effectiveRole === "seller") return "/seller/onboarding";
 
   return "/";
 }
