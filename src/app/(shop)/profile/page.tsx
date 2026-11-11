@@ -5,6 +5,7 @@ import { naira, shortDate } from "@/lib/utils";
 import { Avatar, Badge, Card } from "@/components/ui";
 import { ProfileForm, AvatarEditor } from "@/components/profile-form";
 import { SignOutButton } from "@/components/signout";
+import { InstallAppRow } from "@/components/install-app-row";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Your profile" };
@@ -124,6 +125,9 @@ export default async function ProfilePage() {
           <p className="text-[13.5px] font-semibold text-ink-900">Wishlist</p>
           <span className="text-ink-400">→</span>
         </Link>
+        {/* Renders only when the app is NOT installed — a user who already has
+            it sees no "Install app" row at all. See install-app-row.tsx. */}
+        <InstallAppRow />
         <Link href="/legal/terms" className="flex items-center justify-between px-4 py-3 hover:bg-slate-50">
           <p className="text-[13.5px] font-semibold text-ink-900">Terms &amp; policies</p>
           <span className="text-ink-400">→</span>

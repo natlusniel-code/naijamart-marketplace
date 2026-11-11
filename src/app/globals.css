@@ -94,3 +94,62 @@ body {
   to { opacity: 1; transform: none; }
 }
 .nm-rise { animation: nm-rise 0.35s ease both; }
+
+/* =====================================================================
+   Global loader
+   ---------------------------------------------------------------------
+   The ring is a conic gradient masked down to a thin circle: solid brand
+   green at the head, fading to transparent around the back. That gives the
+   two-tone sweep without an SVG dash array, and it stays smooth at any size.
+   ===================================================================== */
+.nm-loader-ring {
+  background: conic-gradient(
+    from 0deg,
+    #0b8a3e 0deg,
+    #0b8a3e 90deg,
+    #4fbf7d 200deg,
+    rgba(11, 138, 62, 0) 330deg,
+    rgba(11, 138, 62, 0) 360deg
+  );
+  /* Punch out the middle so only a ~3px ring remains. */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  animation: nm-loader-spin 1s ease-in-out infinite;
+}
+
+@keyframes nm-loader-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Very subtle breathing on the icon — 1 to 1.05, never a bounce. */
+.nm-loader-icon {
+  animation: nm-loader-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes nm-loader-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* Soft green glow pooled under the icon. */
+.nm-loader-glow {
+  background: radial-gradient(circle, rgba(11, 138, 62, 0.28) 0%, rgba(11, 138, 62, 0) 70%);
+  filter: blur(6px);
+  animation: nm-loader-glow 1.6s ease-in-out infinite;
+}
+
+@keyframes nm-loader-glow {
+  0%, 100% { opacity: 0.55; transform: scale(0.96); }
+  50% { opacity: 0.9; transform: scale(1.04); }
+}
+
+/* Respect a user who has asked the OS to reduce motion: keep the loader
+   (it is information) but stop the spinning and pulsing. */
+@media (prefers-reduced-motion: reduce) {
+  .nm-loader-ring,
+  .nm-loader-icon,
+  .nm-loader-glow {
+    animation: none;
+  }
+}
