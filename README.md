@@ -179,13 +179,15 @@ reappears on the next load. Full steps in §5.
 >
 > The section below still applies if you re-enable confirmation once SMTP works.
 
-The project's **Confirm signup** template is the stock Supabase one:
+The project's **Confirm signup** template is the friendly NaijaMart one, kept in the repo at
+[`docs/email-templates/confirm-signup.html`](docs/email-templates/confirm-signup.html). It is a
+short, warm welcome - a greeting, one line telling the user to click the button to verify, and a
+sign-off - wrapped in a table-based, inline-styled HTML shell that renders well in Gmail and on
+mobile. It still uses `{{ .ConfirmationURL }}` as the only variable.
 
-```html
-<h2>Confirm your email address</h2>
-<p>Follow the link below to confirm this email address and finish signing up.</p>
-<p><a href="{{ .ConfirmationURL }}">Confirm email address</a></p>
-```
+**To apply it:** Supabase dashboard -> Authentication -> Emails -> Templates -> **Confirm signup**,
+paste the whole file into the "Message body (HTML)" box, and Save. (The Management API exposes no
+email-template endpoint, so this one step is done in the dashboard.)
 
 It contains `{{ .ConfirmationURL }}` and **no `{{ .Token }}`** — so the email holds a link and no
 code. A 6-digit input box therefore asks the user to type something that was never sent. `verify-email.tsx`
@@ -203,8 +205,8 @@ clicking it signs the user in and lands them in the app (sellers → `/seller/on
 
 | Auth setting | Value |
 |---|---|
-| `site_url` | `https://naijamart-marketplace-n.vercel.app` |
-| `uri_allow_list` | `https://naijamart-marketplace-n.vercel.app/**`, `…/auth/callback`, `http://localhost:3000/**`, `http://localhost:3000/auth/callback` |
+| `site_url` | `https://naijamart-marketplace-opal.vercel.app` |
+| `uri_allow_list` | `https://naijamart-marketplace-opal.vercel.app/**`, `…/auth/callback`, `http://localhost:3000/**`, `http://localhost:3000/auth/callback` |
 
 `site_url` was previously `http://localhost:3000` with an **empty** allow-list, which silently broke
 every confirmation link and OAuth callback on the deployed domain. When you add a custom domain, add
