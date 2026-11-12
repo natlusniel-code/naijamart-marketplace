@@ -5,16 +5,20 @@ import { WishlistButton } from "@/components/wishlist-button";
 import type { Listing } from "@/lib/queries";
 
 /**
- * The gig card — Fiverr's layout, NaijaMart's data.
+ * The gig card.
  *
- * Reading order, top to bottom, is deliberate and matches the reference:
+ * Layout follows the blueprint's "Second Sub Page Service Gig" sketch,
+ * which is explicit about two things: the provider logo sits at the
+ * TOP-LEFT of the card, and the card is vertical — a big service picture
+ * with the name and detail underneath it.
+ *
+ * Reading order, top to bottom:
  *
  *   1. a big thumbnail of the service picture (the thing being sold)
- *   2. the provider's logo as a small icon at the BOTTOM LEFT of that
- *      thumbnail, overlapping the edge — so the face behind the work is
- *      attached to the work, not buried in a text row
+ *   2. the provider's logo, top-left, inside that thumbnail's corner —
+ *      the face behind the work stays attached to the work
  *   3. the service name, then the detail under it
- *   4. the provider name, rating and starting price
+ *   4. the provider name, rating, delivery time and starting price
  *
  * The provider logo is the one element that must not move: it is what
  * makes a marketplace of strangers feel accountable.
@@ -66,14 +70,16 @@ export function GigCard({
 
         <WishlistButton listingId={l.id} saved={saved} signedIn={signedIn} />
 
-        {/* 2. provider logo, bottom-left, overlapping the thumbnail edge */}
-        <span className="absolute -bottom-0 left-3 translate-y-1/2">
+        {/* 2. provider logo — TOP-LEFT of the card, as drawn in the blueprint.
+            It started bottom-left, overlapping the thumbnail's lower edge, but
+            the sketch is unambiguous: the circle sits at the top-left corner. */}
+        <span className="absolute left-2 top-2">
           {shop?.logo_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={shop.logo_url}
               alt={shop.name}
-              className="h-9 w-9 rounded-full border-2 border-white object-cover shadow-sm"
+              className="h-9 w-9 rounded-full border-2 border-white object-cover shadow-md"
               loading="lazy"
             />
           ) : (
@@ -84,8 +90,10 @@ export function GigCard({
         </span>
       </div>
 
-      {/* 3 + 4. name, detail, provider, price */}
-      <div className="flex flex-1 flex-col p-3 pt-6">
+      {/* 3 + 4. name, detail, provider, price.
+          Plain p-3: the extra top padding existed only to clear the old
+          half-overlapping logo, which now lives inside the thumbnail. */}
+      <div className="flex flex-1 flex-col p-3">
         <p className="line-clamp-2 min-h-[36px] text-[13.5px] font-semibold leading-snug text-ink-900">
           {l.title}
         </p>

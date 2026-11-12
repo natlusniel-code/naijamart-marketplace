@@ -11,12 +11,13 @@ import {
 } from "@/lib/queries";
 import { ListingCard, ShopCard } from "@/components/cards";
 import { GigCard } from "@/components/gig-card";
+import { ListingTabs } from "@/components/listing-tabs";
 import { LocationFilter } from "@/components/location-filter";
 import { SectionHead, EmptyState, Badge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-type SP = { city?: string };
+type SP = { city?: string; tab?: string };
 
 export default async function HomePage({ searchParams }: { searchParams: SP }) {
   const session = await getSession();
@@ -28,6 +29,11 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
   // ?city=…, but nothing is hidden until they pick a location.
   const city = resolveCity(searchParams.city, null);
   const browsingAll = city === null;
+
+  // Which tab of the listing section is showing. The blueprint draws the
+  // product listing and the service listing as two tabs of one section, so
+  // the default is products and `?tab=service` switches to gigs.
+  const tab: "product" | "service" = searchParams.tab === "service" ? "service" : "product";
 
   const [categories, places, shops, products, services, savedIds] = await Promise.all([
     getCategories(),
@@ -138,40 +144,55 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
         </section>
       )}
 
-      {/* new in city */}
-      {products.length > 0 && (
+      {/* The listing section, as drawn in the blueprint: "Product Listing"
+          and "Service Gig" are two tabs of ONE section, with "See more"
+          leading to the full sub page. `?tab=service` switches which one is
+          shown; both are fetched so the tab counts are honest. */}
+      {(products.length > 0 || services.length > 0) && (
         <section>
-          <SectionHead
-            title={browsingAll ? "Picked for you" : `Picked for you in ${city}`}
-            sub={browsingAll ? "Fresh finds, top rated and best sellers" : "Rotated daily across every city"}
-            action="Browse all"
-            href={`/search${city ? `?city=${encodeURIComponent(city)}` : `?city=${ALL_CITIES}`}`}
+          <ListingTabs
+            current={tab}
+            productHref={`/${city ? `?city=${encodeURIComponent(city)}` : ""}`}
+            serviceHref={`/?tab=service${city ? `&city=${encodeURIComponent(city)}` : ""}`}
+            seeMoreHref={
+              tab === "service"
+                ? `/services${city ? `?city=${encodeURIComponent(city)}` : ""}`
+                : `/search${city ? `?city=${encodeURIComponent(city)}` : `?city=${ALL_CITIES}`}`
+            }
+            seeMoreLabel={tab === "service" ? "All services" : "Browse all"}
           />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {products.map((l) => (
-              <ListingCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
-            ))}
-          </div>
-        </section>
-      )}
 
-      {/* services / gigs — the sibling of the products listing above.
-          Ranked and rotated daily by the same storefront_feed as products
-          (sql/0019), so a new gig, a well-rated one and a best-selling one
-          all get their turn on page one. */}
-      {services.length > 0 && (
-        <section>
-          <SectionHead
-            title="Services &amp; gigs"
-            sub="Book a pro — online gigs work anywhere in Nigeria"
-            action="All services"
-            href={`/search?type=service${city ? `&city=${encodeURIComponent(city)}` : `&city=${ALL_CITIES}`}`}
-          />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {services.map((l) => (
-              <GigCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
-            ))}
-          </div>
+          {tab === "service" ? (
+            services.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {services.map((l) => (
+                  <GigCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                icon="🛠️"
+                title="No gigs here yet"
+                body="Service providers are still signing up. Browse every city, or check back soon."
+                action="Browse all cities"
+                href={`/?tab=service&city=${ALL_CITIES}`}
+              />
+            )
+          ) : products.length > 0 ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {products.map((l) => (
+                <ListingCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon="📦"
+              title="No products here yet"
+              body="Nothing listed in this city right now. Try another city, or browse the whole marketplace."
+              action="Browse all cities"
+              href={`/?city=${ALL_CITIES}`}
+            />
+          )}
         </section>
       )}
 

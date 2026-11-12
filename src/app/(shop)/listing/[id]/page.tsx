@@ -247,16 +247,41 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
 function PriceBlock({ l, shop }: { l: any; shop: any }) {
   const pct = discountPercent(Number(l.price), l.original_price);
+  const isService = l.type === "service";
   return (
     <div className="nm-card p-4">
+      {/* Provider first on a gig, as on the gig card: the face behind the
+          work is the thing a buyer is judging, so it leads. */}
+      {isService && (
+        <div className="mb-3 flex items-center gap-2.5 border-b border-[var(--line)] pb-3">
+          {shop.logo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={shop.logo_url} alt={shop.name} className="h-10 w-10 rounded-full border-2 border-white object-cover shadow-sm" />
+          ) : (
+            <span className="grid h-10 w-10 place-items-center rounded-full bg-brand-500 text-[13px] font-bold text-white">
+              {shop.name.slice(0, 2).toUpperCase()}
+            </span>
+          )}
+          <div className="min-w-0">
+            <Link href={`/shop/${shop.slug}`} className="block truncate text-[13.5px] font-bold text-ink-900 hover:text-brand-600">
+              {shop.name}
+            </Link>
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <Star value={Number(shop.rating_avg)} count={shop.rating_count} />
+              {shop.verified && <VerifiedBadge />}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-start justify-between gap-3">
         <h1 className="text-[19px] font-extrabold leading-snug tracking-tight text-ink-900">{l.title}</h1>
-        <Badge tone={l.type === "service" ? "blue" : "gray"}>{l.type === "service" ? "Service" : "Product"}</Badge>
+        <Badge tone={isService ? "blue" : "gray"}>{isService ? "Service" : "Product"}</Badge>
       </div>
       <div className="mt-2 flex flex-wrap items-baseline gap-2">
         <p className="text-[26px] font-extrabold tracking-tight text-ink-900">
           {naira(l.price)}
-          {l.type === "service" && <span className="ml-1.5 text-[12px] font-medium text-ink-400">starting price</span>}
+          {isService && <span className="ml-1.5 text-[12px] font-medium text-ink-400">starting price</span>}
         </p>
         {pct > 0 && l.original_price != null && (
           <>
@@ -273,7 +298,7 @@ function PriceBlock({ l, shop }: { l: any; shop: any }) {
         </p>
       )}
       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
-        {l.type === "product" ? (
+        {!isService ? (
           l.stock > 0 ? (
             <span className="font-semibold text-brand-700">{l.stock} in stock</span>
           ) : (
@@ -283,7 +308,14 @@ function PriceBlock({ l, shop }: { l: any; shop: any }) {
           <span className="font-semibold text-brand-700">Accepting new jobs</span>
         )}
         <span className="text-ink-300">•</span>
-        <span className="text-ink-500">{shop.city}, {shop.state}</span>
+        {/* An online gig has no coverage area, so its location is not a
+            constraint on the buyer — say "works anywhere" instead of
+            printing a city that would wrongly imply a boundary. */}
+        {isService && l.service_mode === "online" ? (
+          <span className="text-ink-500">🌐 Works anywhere in Nigeria</span>
+        ) : (
+          <span className="text-ink-500">{shop.city}, {shop.state}</span>
+        )}
         {shop.verified && <><span className="text-ink-300">•</span><VerifiedBadge /></>}
       </div>
     </div>

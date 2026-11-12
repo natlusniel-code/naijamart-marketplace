@@ -274,6 +274,12 @@ export async function getStorefrontFeed(
   limit = 8,
   seed?: string,
   serviceMode?: "physical" | "online",
+  /**
+   * Rows to skip. The round-robin interleave is computed over the whole
+   * eligible set and then sliced (sql/0020), so page 2 is the next slice
+   * of the same ranking rather than a fresh shuffle that repeats page 1.
+   */
+  offset = 0,
 ) {
   const supabase = createClient();
 
@@ -283,6 +289,7 @@ export async function getStorefrontFeed(
     p_limit: limit,
     p_seed: seed ?? null,
     p_service_mode: serviceMode ?? null,
+    p_offset: offset,
   });
 
   if (error) {
@@ -302,6 +309,31 @@ export async function getStorefrontFeed(
   return ids
     .map((id: string) => byId.get(id))
     .filter(Boolean) as unknown as Listing[];
+}
+
+/**
+ * How many listings the feed could show, for the page links.
+ *
+ * `storefront_feed_count` applies exactly the same eligibility rules as
+ * `storefront_feed` (sql/0020), so the number of page links can never
+ * disagree with the rows that come back.
+ */
+export async function getStorefrontFeedCount(
+  city: string | null,
+  type: "product" | "service" = "product",
+  serviceMode?: "physical" | "online",
+): Promise<number> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("storefront_feed_count", {
+    p_city: city || null,
+    p_type: type,
+    p_service_mode: serviceMode ?? null,
+  });
+  if (error) {
+    console.error("storefront_feed_count failed:", error.message);
+    return 0;
+  }
+  return typeof data === "number" ? data : 0;
 }
 
 export async function getListing(id: string) {
