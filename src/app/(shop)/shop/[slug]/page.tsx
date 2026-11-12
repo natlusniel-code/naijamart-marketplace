@@ -183,6 +183,20 @@ export default async function ShopPage({ params }: { params: { slug: string } })
               <span>·</span>
               <span>{followers ?? 0} followers</span>
             </div>
+
+            {/* Order Delivered — the trust signal a buyer looks for before
+                paying a stranger. Shown only once there is something to
+                show: "0 delivered" on a new shop reads as a warning. */}
+            {(shop.orders_delivered ?? 0) > 0 && (
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10.5px] font-bold text-brand-700">
+                  ✓ Order Delivered
+                </span>
+                <span className="text-[10.5px] font-semibold text-ink-500">
+                  {shop.orders_delivered} order{shop.orders_delivered === 1 ? "" : "s"}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="shrink-0">

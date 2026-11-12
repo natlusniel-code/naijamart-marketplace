@@ -15,6 +15,7 @@ const ITEMS = [
   { href: "/seller", label: "Dashboard", exact: true },
   { href: "/seller/orders", label: "Orders" },
   { href: "/seller/listings", label: "Listings" },
+  { href: "/seller/analytics", label: "Analytics" },
   { href: "/seller/chats", label: "Chats", badge: "messages" as const },
   { href: "/seller/notifications", label: "Notifications" },
   { href: "/seller/payouts", label: "Payouts" },

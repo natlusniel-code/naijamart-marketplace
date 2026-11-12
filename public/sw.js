@@ -54,7 +54,26 @@ const SOURCES = {
   broadcast: { label: "NaijaMart", subtitle: "Announcement", href: "/notifications" },
   system: { label: "NaijaMart", subtitle: "Account notice", href: "/notifications" },
   promo: { label: "NaijaMart offer", subtitle: "Deals and discounts", href: "/notifications" },
+  delivery: { label: "Delivery", subtitle: "NaijaMart delivery", href: "/notifications" },
 };
+
+/**
+ * One group for the whole app.
+ *
+ * ── The bug this fixes ────────────────────────────────────────────────
+ * Every notification used its own tag (or none), so the phone's notification
+ * centre filled with a separate NaijaMart entry per event — five orders meant
+ * five rows, and the shade became unreadable. The requirement is that
+ * NaijaMart notifications arrive as ONE grouped entry, and opening it shows
+ * the rest.
+ *
+ * Android groups by `tag` when the tag is shared, so every notification now
+ * carries the same tag. The body is rewritten to say how many are waiting,
+ * and tapping the group opens the notifications page where all of them are
+ * listed. `renotify: false` is deliberate: re-alerting on every collapse
+ * would buzz the phone once per order, which is the noise we are removing.
+ */
+const GROUP_TAG = "naijamart";
 
 function sourceFor(kind) {
   return SOURCES[kind] || SOURCES.system;
@@ -84,20 +103,28 @@ function show(payload) {
   const title = payload.title || titleFor(kind, payload.subject);
   const body = payload.body || bodyFor(kind, payload.detail);
 
-  const options = {
-    body,
-    // The green cart on a transparent background. The old value was the full
-    // app tile, which the OS drew as a white square — the reported bug.
-    icon: payload.icon || "/notification-icon-192.png",
-    badge: payload.badge || "/notification-icon-96.png",
-    // A tag collapses repeats: two "order shipped" pushes for the same order
-    // replace each other instead of stacking up.
-    tag: payload.tag || undefined,
-    renotify: !!payload.tag,
-    data: { url: payload.url || src.href, kind },
-    vibrate: [80, 40, 80],
-  };
-  return self.registration.showNotification(title, options);
+  return self.registration.getNotifications({ tag: GROUP_TAG }).then((existing) => {
+    // Count what is already in the group so the collapsed row can say
+    // "3 new updates" instead of only the newest one.
+    const count = existing.length + 1;
+
+    const options = {
+      body: count > 1 ? `${body} · ${count} new updates` : body,
+      // The green cart on a transparent background. The old value was the full
+      // app tile, which the OS drew as a white square — the reported bug.
+      icon: payload.icon || "/notification-icon-192.png",
+      badge: payload.badge || "/notification-icon-96.png",
+      // One shared tag = one grouped entry in the shade.
+      tag: GROUP_TAG,
+      // Do not buzz again when the group collapses; the first alert is enough.
+      renotify: false,
+      // Tapping the group lands on the list, where every notification is
+      // readable — that is the "show more" the requirement asks for.
+      data: { url: "/notifications", kind, latest: payload.url || src.href },
+      vibrate: [80, 40, 80],
+    };
+    return self.registration.showNotification(title, options);
+  });
 }
 
 self.addEventListener("push", (event) => {

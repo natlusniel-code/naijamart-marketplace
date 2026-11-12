@@ -75,7 +75,7 @@ export type Place = { city: string; state: string | null; shop_count: number };
 export const ALL_CITIES = "all";
 
 const SHOP_COLS =
-  "id,name,slug,city,state,verified,rating_avg,rating_count,logo_url,banner_url,kind,category,status,subscription_status,description,pickup_available,delivery_fee,free_delivery_threshold";
+  "id,name,slug,city,state,verified,rating_avg,rating_count,logo_url,banner_url,kind,category,status,subscription_status,description,pickup_available,delivery_fee,free_delivery_threshold,orders_delivered";
 
 /**
  * The columns every listing card needs, in one place.

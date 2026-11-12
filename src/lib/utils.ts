@@ -70,7 +70,36 @@ export const ORDER_STEPS = [
   "Completed",
 ] as const;
 
-export function stepIndexFor(status: string, fulfilment = "delivery") {
+/**
+ * A service has no courier, no pickup and no shipping.
+ *
+ * The old timeline showed "Shipped" for a logo design, which is nonsense to
+ * a buyer and made them think something was in transit. A service is
+ * delivered as files in the chat, so its steps are the work itself.
+ * "Delivered" stays — the buyer still needs to see the job land.
+ */
+export const SERVICE_STEPS = [
+  "Order placed",
+  "Payment confirmed",
+  "Seller working",
+  "Delivered",
+  "Completed",
+] as const;
+
+export function stepIndexFor(status: string, fulfilment = "delivery", isService = false) {
+  if (isService) {
+    switch (status) {
+      case "pending_payment": return 0;
+      case "paid": return 1;
+      case "accepted":
+      case "processing":
+      case "shipped":
+      case "ready_for_pickup": return 2;
+      case "delivered": return 3;
+      case "completed": return 4;
+      default: return 0;
+    }
+  }
   switch (status) {
     case "pending_payment": return 0;
     case "paid": return 1;

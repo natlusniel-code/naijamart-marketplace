@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { DeliveryPanel } from "@/components/delivery-panel";
 import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { naira, relTime } from "@/lib/utils";
@@ -80,7 +81,15 @@ export function ChatThread({
   otherAvatar: string | null;
   shopName: string | null;
   shopLogo: string | null;
-  order: { id: string; reference: string; status: string; total: number; fulfilment: string } | null;
+  order: {
+    id: string;
+    reference: string;
+    status: string;
+    total: number;
+    fulfilment: string;
+    promised_delivery_at?: string | null;
+    delivery_days?: number | null;
+  } | null;
   initialMessages: Msg[];
   initialOffers: Offer[];
   /**
@@ -111,7 +120,16 @@ export function ChatThread({
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [offerOpen, setOfferOpen] = useState(false);
-  const [offer, setOffer] = useState({ price: "", scope: "", timeline: "" });
+  const [offer, setOffer] = useState({ price: "", scope: "", timeline: "", date: "" });
+  /**
+   * Which half of the thread is showing.
+   *
+   * A service is agreed here and delivered here, so the conversation needs a
+   * second surface for the work itself. Keeping it as a tab rather than a
+   * separate page means the buyer never loses the context of what was said
+   * when they open the file they paid for.
+   */
+  const [tab, setTab] = useState<"chat" | "delivery">("chat");
   const [offerImage, setOfferImage] = useState<{ file: File; preview: string } | null>(null);
   /** image chosen but NOT sent yet — confirm before it leaves (item 5) */
   const [pendingImage, setPendingImage] = useState<{ file: File; preview: string } | null>(null);
@@ -370,11 +388,30 @@ export function ChatThread({
     setUploading(false);
   }
 
+  /**
+   * Days between today and the date the seller picked.
+   *
+   * Computed here so the seller sees the promise as they choose it —
+   * "2 days" is easier to judge than "14 Nov". The database recomputes the
+   * same number on insert, so this is a preview, not the source of truth.
+   */
+  const offerDays = (() => {
+    if (!offer.date) return 0;
+    const picked = new Date(`${offer.date}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.max(1, Math.round((picked.getTime() - today.getTime()) / 86400000));
+  })();
+
   async function sendOffer(e: React.FormEvent) {
     e.preventDefault();
     const price = Number(offer.price);
     if (!price || price <= 0) {
       setErr("Enter a price for the offer.");
+      return;
+    }
+    if (!offer.date) {
+      setErr("Choose the date you will deliver by.");
       return;
     }
     setBusy(true);
@@ -400,16 +437,20 @@ export function ChatThread({
           buyer_id: chat.buyer_id,
           price,
           scope: offer.scope || null,
-          timeline: offer.timeline || null,
+          // The timeline is derived from the chosen date by a trigger
+          // (sql/0028), so the number the buyer sees and the number the
+          // ranking is scored against cannot drift apart.
+          timeline: offerDays ? `${offerDays} day${offerDays === 1 ? "" : "s"}` : null,
+          delivery_date: offer.date || null,
           image_url: imageUrl,
         })
-        .select("id,price,scope,timeline,status,seller_id,image_url,created_at")
+        .select("id,price,scope,timeline,status,seller_id,image_url,created_at,delivery_date,delivery_days")
         .single();
       if (error) throw new Error(error.message);
 
       if (data) setOffers((prev) => (prev.some((o) => o.id === data.id) ? prev : [...prev, data as Offer]));
       setOfferOpen(false);
-      setOffer({ price: "", scope: "", timeline: "" });
+      setOffer({ price: "", scope: "", timeline: "", date: "" });
       if (offerImage) URL.revokeObjectURL(offerImage.preview);
       setOfferImage(null);
       router.refresh();
@@ -472,7 +513,39 @@ export function ChatThread({
         </Link>
       )}
 
+      {/* tabs — the conversation, and the work itself.
+          Only shown once an order exists: before that there is nothing to
+          deliver, and an empty second tab would just be a dead end. */}
+      {order && (
+        <div className="mt-2 flex gap-1 rounded-xl bg-slate-100 p-1">
+          {([
+            { key: "chat" as const, label: "Chat" },
+            { key: "delivery" as const, label: "Deliver Order" },
+          ]).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`flex-1 rounded-lg px-3 py-1.5 text-[12px] font-bold transition ${
+                tab === t.key ? "bg-white text-ink-900 shadow-sm" : "text-ink-500"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* messages */}
+      {tab === "delivery" && order ? (
+        <DeliveryPanel
+          orderId={order.id}
+          amSeller={amSeller}
+          orderStatus={order.status}
+          promisedAt={order.promised_delivery_at ?? null}
+          deliveryDays={order.delivery_days ?? null}
+        />
+      ) : (
       <div className="nm-scroll mt-2 flex-1 space-y-2 overflow-y-auto py-2">
         {messages.length === 0 && (
           <div className="mx-auto mt-8 max-w-xs rounded-xl bg-slate-50 px-3 py-3 text-center text-[12px] leading-relaxed text-ink-500">
@@ -540,6 +613,7 @@ export function ChatThread({
         ))}
         <div ref={bottom} />
       </div>
+      )}
 
       {blocked && (
         <div
@@ -583,8 +657,29 @@ export function ChatThread({
             onChange={(e) => setOffer((o) => ({ ...o, price: e.target.value.replace(/\D/g, "") }))} />
           <input className="nm-input !py-2 !text-[13px]" placeholder="What's included (scope)" value={offer.scope}
             onChange={(e) => setOffer((o) => ({ ...o, scope: e.target.value }))} />
-          <input className="nm-input !py-2 !text-[13px]" placeholder="Timeline, e.g. 2 days" value={offer.timeline}
-            onChange={(e) => setOffer((o) => ({ ...o, timeline: e.target.value }))} />
+
+          {/* Delivery date — the promise the whole order is tracked against.
+              A native date input opens the phone's own calendar, which is
+              what a seller expects to tap; a hand-built calendar would be a
+              worse copy of it. The timeline below is derived, never typed. */}
+          <div className="rounded-xl border border-brand-500/25 bg-brand-50/60 p-2.5">
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-brand-900">
+              Deliver by
+            </label>
+            <input
+              type="date"
+              required
+              min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+              value={offer.date}
+              onChange={(e) => setOffer((o) => ({ ...o, date: e.target.value }))}
+              className="nm-input mt-1 !py-2 !text-[13px]"
+            />
+            {offer.date && (
+              <p className="mt-1 text-[11.5px] font-semibold text-brand-800">
+                Delivery timeline: {offerDays} day{offerDays === 1 ? "" : "s"}
+              </p>
+            )}
+          </div>
 
           {/* optional photo on the offer (item 7) */}
           {offerImage ? (
@@ -619,7 +714,12 @@ export function ChatThread({
           behind it. The only thing that moves it is the on-screen keyboard,
           which shrinks the visual viewport; `--nm-kb` is set from that
           difference in the effect below, so the composer lifts by exactly
-          the keyboard height and returns when it is dismissed. */}
+          the keyboard height and returns when it is dismissed.
+
+          Hidden on the delivery tab: there is nothing to type there, and a
+          message box under a file list invites the buyer to send a message
+          they think is a delivery. */}
+      {tab === "chat" && (
       <form
         onSubmit={send}
         className="sticky bottom-0 z-20 -mx-1 flex items-end gap-1.5 border-t border-[var(--line)] bg-white/95 px-1 pb-1 pt-2 backdrop-blur"
@@ -656,6 +756,7 @@ export function ChatThread({
           Send
         </button>
       </form>
+      )}
     </div>
   );
 }

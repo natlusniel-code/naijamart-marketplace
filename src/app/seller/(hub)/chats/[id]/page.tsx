@@ -29,7 +29,7 @@ export default async function SellerChatPage({ params }: { params: { id: string 
     .from("chats")
     .select(`id,buyer_id,seller_id,shop_id,order_id,
       shops(name,logo_url,slug),
-      orders(id,reference,status,total,fulfilment)`)
+      orders(id,reference,status,total,fulfilment,promised_delivery_at,delivery_days)`)
     .eq("id", params.id)
     .maybeSingle();
 
@@ -77,6 +77,8 @@ export default async function SellerChatPage({ params }: { params: { id: string 
               status: c.orders.status,
               total: Number(c.orders.total),
               fulfilment: c.orders.fulfilment,
+              promised_delivery_at: c.orders.promised_delivery_at ?? null,
+              delivery_days: c.orders.delivery_days ?? null,
             }
           : null
       }

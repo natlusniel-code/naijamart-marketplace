@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/supabase/server";
 import { getOrder, getSettings } from "@/lib/queries";
-import { naira, shortDate, ORDER_STATUS, ORDER_STEPS, stepIndexFor, cn } from "@/lib/utils";
+import { naira, shortDate, ORDER_STATUS, ORDER_STEPS, SERVICE_STEPS, stepIndexFor, cn } from "@/lib/utils";
 import { Badge, Card, Alert } from "@/components/ui";
 import { UploadReceipt, ConfirmDelivery, RaiseIssue, LeaveReview } from "@/components/order-actions";
 import { ChatWithSeller } from "@/components/chat-with-seller";
@@ -23,10 +23,15 @@ export default async function OrderDetailPage({ params }: { params: { id: string
   if (!isBuyer && !isSeller && !session.isAdmin) notFound();
 
   const st = ORDER_STATUS[o.status] ?? { label: o.status, tone: "gray" };
-  const step = stepIndexFor(o.status, o.fulfilment);
-  const steps = o.fulfilment === "pickup"
-    ? ["Order placed", "Payment confirmed", "Seller preparing", "Ready for pickup", "Picked up", "Completed"]
-    : [...ORDER_STEPS];
+  // A service is delivered as files in the chat — there is no courier and no
+  // pickup, so its timeline must not mention either.
+  const isService = !!o.is_service;
+  const step = stepIndexFor(o.status, o.fulfilment, isService);
+  const steps = isService
+    ? [...SERVICE_STEPS]
+    : o.fulfilment === "pickup"
+      ? ["Order placed", "Payment confirmed", "Seller preparing", "Ready for pickup", "Picked up", "Completed"]
+      : [...ORDER_STEPS];
   const cancelled = ["cancelled", "disputed"].includes(o.status);
 
   return (

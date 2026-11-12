@@ -19,7 +19,7 @@ export default async function SellerDashboard() {
   const [{ data: orders }, { data: payouts }, { data: messages }] = await Promise.all([
     supabase
       .from("orders")
-      .select(`id,reference,status,total,commission_amount,payout_amount,payout_status,created_at,fulfilment,buyer_id`)
+      .select(`id,reference,status,total,commission_amount,payout_amount,payout_status,created_at,fulfilment,buyer_id,delivered_on_time,promised_delivery_at`)
       .eq("shop_id", shop.id)
       .order("created_at", { ascending: false })
       .limit(60),
@@ -40,6 +40,27 @@ export default async function SellerDashboard() {
   const pendingPayout = (payouts ?? [])
     .filter((p: any) => p.status === "queued")
     .reduce((n: number, p: any) => n + Number(p.amount), 0);
+
+  /**
+   * "Pending Amount" — money earned but not yet withdrawable.
+   *
+   * This is deliberately separate from "Pending payout" above: that one is
+   * everything queued, including what has already unlocked. A seller asking
+   * "how much can I take out?" needs the number that is actually available,
+   * and the number still waiting, side by side.
+   */
+  const nowMs = Date.now();
+  const availableNow = (payouts ?? [])
+    .filter((p: any) => p.status === "queued" && !p.requested_at && new Date(p.available_at).getTime() <= nowMs)
+    .reduce((n: number, p: any) => n + Number(p.amount), 0);
+  const pendingAmount = (payouts ?? [])
+    .filter((p: any) => p.status === "queued" && !p.requested_at && new Date(p.available_at).getTime() > nowMs)
+    .reduce((n: number, p: any) => n + Number(p.amount), 0);
+
+  // Delivery performance — the same on-time share the ranking is scored on.
+  const scored = list.filter((o: any) => o.delivered_on_time !== null && o.delivered_on_time !== undefined);
+  const onTime = scored.filter((o: any) => o.delivered_on_time).length;
+  const onTimePct = scored.length ? Math.round((onTime / scored.length) * 100) : null;
 
   const needsAction = list.filter((o: any) => o.status === "paid");
   const awaitingShip = list.filter((o: any) => ["accepted", "processing"].includes(o.status));
@@ -93,9 +114,43 @@ export default async function SellerDashboard() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Revenue this month" value={naira(revenueMonth)} hint="after 5% commission" tone="brand" />
         <Stat label="Orders" value={String(newOrders + inProgress)} hint={`${newOrders} new · ${inProgress} in progress`} />
-        <Stat label="Pending payout" value={naira(pendingPayout)} hint="releases 4 days after delivery" tone="amber" />
-        <Stat label="Shop rating" value={shop.verified ? "—" : "—"} hint="from buyer reviews" />
+        <Stat
+          label="Pending amount"
+          value={naira(pendingAmount)}
+          hint={availableNow > 0 ? `${naira(availableNow)} ready to withdraw` : "unlocks 4 days after delivery"}
+          tone="amber"
+        />
+        <Stat
+          label="On-time delivery"
+          value={onTimePct === null ? "—" : `${onTimePct}%`}
+          hint={scored.length ? `${onTime} of ${scored.length} on time` : "no deliveries scored yet"}
+          tone={onTimePct !== null && onTimePct < 80 ? "red" : "plain"}
+        />
       </div>
+
+      {/* Delivery performance — early delivery lifts the ranking, late
+          delivery lowers it, so the seller should see the number that does
+          it rather than discovering it in their placement. */}
+      {onTimePct !== null && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-[13.5px] font-bold text-ink-900">Delivery performance</p>
+            <Badge tone={onTimePct >= 90 ? "green" : onTimePct >= 70 ? "amber" : "red"}>
+              {onTimePct >= 90 ? "Excellent" : onTimePct >= 70 ? "Fair" : "Needs work"}
+            </Badge>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className={`h-full rounded-full ${onTimePct >= 90 ? "bg-brand-500" : onTimePct >= 70 ? "bg-amber-500" : "bg-red-500"}`}
+              style={{ width: `${onTimePct}%` }}
+            />
+          </div>
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-500">
+            {onTime} of {scored.length} orders delivered by the promised date. Delivering early raises your
+            ranking; delivering late lowers it.
+          </p>
+        </Card>
+      )}
 
       {/* action needed */}
       <Card className="p-4">
