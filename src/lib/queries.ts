@@ -34,6 +34,14 @@ export type Listing = {
   service_mode: "physical" | "online" | null;
   /** How long the gig takes, in days. Null when the seller did not say. */
   delivery_days: number | null;
+  /**
+   * The gig's OWN review rollup (sql/0021). A product leaves these at 0 and
+   * the card falls back to the shop's rating, which is the right thing for
+   * a product: the shop is what a buyer is judging. A gig is judged on the
+   * gig, so its own stars are shown when it has any.
+   */
+  rating_avg: number;
+  rating_count: number;
   delivery_fee_override: number | null;
   free_delivery_threshold: number | null;
   shops?: ShopLite;
@@ -77,7 +85,7 @@ const SHOP_COLS =
  * typed result.
  */
 const LISTING_COLS =
-  `id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,service_mode,delivery_days,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`;
+  `id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,service_mode,delivery_days,rating_avg,rating_count,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`;
 
 export async function getCategories() {
   const supabase = createClient();
@@ -363,11 +371,88 @@ export async function getShopListings(shopId: string) {
   const supabase = createClient();
   const { data } = await supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,categories(name,icon,slug)`)
+    .select(`id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,service_mode,delivery_days,rating_avg,rating_count,delivery_fee_override,free_delivery_threshold,categories(name,icon,slug)`)
     .eq("shop_id", shopId)
     .eq("status", "live")
     .order("created_at", { ascending: false });
   return (data ?? []) as unknown as Listing[];
+}
+
+export type GigPackage = {
+  id: string;
+  listing_id: string;
+  tier: "basic" | "standard" | "premium";
+  name: string;
+  description: string | null;
+  price: number;
+  delivery_days: number | null;
+  features: string[];
+  sort_order: number;
+};
+
+/**
+ * The three tiers of a gig, cheapest first.
+ *
+ * A gig with no rows here is still bookable at its starting price — the
+ * detail page falls back to a single "book this gig" box rather than
+ * inventing tiers the seller never set.
+ */
+export async function getGigPackages(listingId: string): Promise<GigPackage[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("gig_packages")
+    .select("id,listing_id,tier,name,description,price,delivery_days,features,sort_order")
+    .eq("listing_id", listingId)
+    .order("sort_order");
+  return (data ?? []) as unknown as GigPackage[];
+}
+
+/**
+ * Reviews written about one gig.
+ *
+ * Separate from `getShopReviews` because a gig's stars must be its own: a
+ * shop with a great logo gig and a poor letter-writing gig would otherwise
+ * show identical ratings on both cards.
+ */
+export async function getGigReviews(listingId: string, limit = 6) {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("reviews")
+    .select("id,rating,body,seller_reply,created_at,images,buyer_id")
+    .eq("listing_id", listingId)
+    .eq("status", "published")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  const rows = data ?? [];
+
+  const ids = Array.from(new Set(rows.map((r: any) => r.buyer_id).filter(Boolean)));
+  const { data: people } = ids.length
+    ? await supabase.from("profiles_public").select("id,full_name,avatar_url").in("id", ids)
+    : { data: [] as any[] };
+  const map = new Map((people ?? []).map((p: any) => [p.id, p]));
+
+  return rows.map((r: any) => ({ ...r, profiles_public: map.get(r.buyer_id) ?? null }));
+}
+
+/**
+ * The gigs on a buyer's delivered orders that they have not reviewed yet.
+ *
+ * Drives the review form on the gig page: a buyer who has not received the
+ * gig sees no form, and one who already reviewed it sees their review
+ * instead of a second invitation.
+ */
+export async function getReviewableGigOrder(userId: string, listingId: string) {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("orders")
+    .select("id,status,order_items!inner(listing_id)")
+    .eq("buyer_id", userId)
+    .in("status", ["delivered", "completed"])
+    .eq("order_items.listing_id", listingId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data ?? null) as { id: string; status: string } | null;
 }
 
 export async function getShopReviews(shopId: string, limit = 6) {

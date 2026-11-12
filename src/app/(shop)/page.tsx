@@ -164,7 +164,11 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
 
           {tab === "service" ? (
             services.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              /* Gigs are ONE per row on a phone, as the layout sketch
+                 draws them: a full-width card with a big thumbnail reads as
+                 "here is a piece of work someone will do for you", which is
+                 the whole point of the format. Products stay two-up below. */
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {services.map((l) => (
                   <GigCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
                 ))}

@@ -128,7 +128,8 @@ export default async function ServicesPage({ searchParams }: { searchParams: SP 
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {/* One gig per row on a phone, matching the layout sketch. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {services.map((l) => (
               <GigCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
             ))}

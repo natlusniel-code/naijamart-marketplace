@@ -173,7 +173,15 @@ export function CheckoutFlow({
       for (const s of shops) {
         const { data: order, error } = await supabase.rpc("place_order", {
           p_shop_id: s.shopId,
-          p_items: s.lines.map((l) => ({ listing_id: l.listingId, quantity: l.quantity })),
+          p_items: s.lines.map((l) => ({
+            listing_id: l.listingId,
+            quantity: l.quantity,
+            // The tier is sent so the order line records what was bought.
+            // The PRICE is not sent: place_order reads it from
+            // gig_packages, so a tampered cart cannot buy Premium for
+            // Basic money.
+            package_tier: l.packageTier ?? null,
+          })),
           p_fulfilment: s.fulfilment,
           p_address: s.fulfilment === "delivery" ? addressText : null,
           p_note: note || null,

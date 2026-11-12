@@ -27,6 +27,13 @@ export type CartShop = {
      * Optional so carts saved before this field existed still parse.
      */
     isService?: boolean;
+    /**
+     * Which package tier was chosen (sql/0021): basic, standard or premium.
+     * The price on this line is already the tier's price; the tier is kept
+     * so the order line records what was bought, and so `place_order` can
+     * re-price it server-side rather than trusting the client.
+     */
+    packageTier?: "basic" | "standard" | "premium" | null;
   }[];
 };
 
@@ -68,6 +75,8 @@ export function addToCart(item: {
   quantity?: number;
   /** True when the listing being added is a gig (sql/0019). */
   isService?: boolean;
+  /** The chosen package tier for a gig (sql/0021). */
+  packageTier?: "basic" | "standard" | "premium" | null;
 }) {
   const cart = readCart();
   const shop =
@@ -86,7 +95,13 @@ export function addToCart(item: {
       lines: [],
     });
 
-  const existing = shop.lines.find((l) => l.listingId === item.listingId);
+  // A gig bought at two different tiers is two different lines: Basic and
+  // Premium are different products at different prices, so they must not
+  // merge into one quantity.
+  const lineKey = (id: string, tier?: string | null) => `${id}::${tier ?? ""}`;
+  const existing = shop.lines.find(
+    (l) => lineKey(l.listingId, l.packageTier) === lineKey(item.listingId, item.packageTier),
+  );
   if (existing) existing.quantity += item.quantity ?? 1;
   else
     shop.lines.push({
@@ -97,6 +112,7 @@ export function addToCart(item: {
       quantity: item.quantity ?? 1,
       image: item.image ?? null,
       isService: item.isService ?? false,
+      packageTier: item.packageTier ?? null,
     });
 
   writeCart(cart);

@@ -7,21 +7,26 @@ import type { Listing } from "@/lib/queries";
 /**
  * The gig card.
  *
- * Layout follows the blueprint's "Second Sub Page Service Gig" sketch,
- * which is explicit about two things: the provider logo sits at the
- * TOP-LEFT of the card, and the card is vertical — a big service picture
- * with the name and detail underneath it.
+ * Layout follows the layout sketch, which is explicit about the card's
+ * anatomy. Reading order, top to bottom:
  *
- * Reading order, top to bottom:
- *
- *   1. a big thumbnail of the service picture (the thing being sold)
- *   2. the provider's logo, top-left, inside that thumbnail's corner —
- *      the face behind the work stays attached to the work
+ *   1. a big thumbnail of the service picture — roughly 40% of the card
+ *   2. the provider's logo, top-left, inside that thumbnail's corner
  *   3. the service name, then the detail under it
- *   4. the provider name, rating, delivery time and starting price
+ *   4. the provider name with a verified tick
+ *   5. the rating line: stars, then delivery time
+ *   6. the price on its own line at the bottom
  *
- * The provider logo is the one element that must not move: it is what
- * makes a marketplace of strangers feel accountable.
+ * Two things the sketch settled that the previous build got wrong:
+ *
+ *   - The provider logo is at the TOP-LEFT. It had been half-overlapping
+ *     the thumbnail's lower edge.
+ *   - The price is on its OWN line. It had been sharing a row with the
+ *     rating, which made the card read as a product tile rather than a gig.
+ *
+ * The rating is the GIG's own (sql/0021), falling back to the shop's when
+ * the gig has no reviews yet. A shop with one great gig and one poor one
+ * must not show the same stars on both.
  */
 export function GigCard({
   l,
@@ -38,6 +43,12 @@ export function GigCard({
   const shop = l.shops;
   const isOnline = l.service_mode === "online";
 
+  // The gig's own stars when it has any; otherwise the shop's, which is
+  // still a real signal and better than an empty row.
+  const ownCount = Number(l.rating_count ?? 0);
+  const ratingValue = ownCount > 0 ? Number(l.rating_avg) : Number(shop?.rating_avg ?? 0);
+  const ratingCount = ownCount > 0 ? ownCount : Number(shop?.rating_count ?? 0);
+
   return (
     <Link
       href={`/listing/${l.id}`}
@@ -46,7 +57,7 @@ export function GigCard({
         className,
       )}
     >
-      {/* 1. big thumbnail */}
+      {/* 1. big thumbnail — the thing being sold, at ~40% of the card */}
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
         {img ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -60,19 +71,9 @@ export function GigCard({
           <div className="grid h-full place-items-center text-3xl text-slate-300">🛠️</div>
         )}
 
-        {/* online gigs have no coverage area — say so on the card, because
-            a buyer in another city needs to know they can still book it */}
-        {isOnline && (
-          <span className="absolute right-2 top-2 rounded-full bg-ink-900/80 px-2 py-0.5 text-[10.5px] font-semibold text-white backdrop-blur">
-            Online
-          </span>
-        )}
-
-        <WishlistButton listingId={l.id} saved={saved} signedIn={signedIn} />
-
-        {/* 2. provider logo — TOP-LEFT of the card, as drawn in the blueprint.
-            It started bottom-left, overlapping the thumbnail's lower edge, but
-            the sketch is unambiguous: the circle sits at the top-left corner. */}
+        {/* 2. provider logo — TOP-LEFT, as drawn. It sits inside the
+            thumbnail's corner so the face behind the work stays attached
+            to the work. */}
         <span className="absolute left-2 top-2">
           {shop?.logo_url ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -88,11 +89,21 @@ export function GigCard({
             </span>
           )}
         </span>
+
+        {/* Online gigs have no coverage area — say so, because a buyer in
+            another city needs to know they can still book it. It sits at
+            the BOTTOM-left of the image: the top-right belongs to the
+            wishlist heart, and the two used to collide. */}
+        {isOnline && (
+          <span className="absolute bottom-2 left-2 rounded-full bg-ink-900/80 px-2 py-0.5 text-[10.5px] font-semibold text-white backdrop-blur">
+            Online
+          </span>
+        )}
+
+        <WishlistButton listingId={l.id} saved={saved} signedIn={signedIn} />
       </div>
 
-      {/* 3 + 4. name, detail, provider, price.
-          Plain p-3: the extra top padding existed only to clear the old
-          half-overlapping logo, which now lives inside the thumbnail. */}
+      {/* 3–6. name, detail, provider, rating, price */}
       <div className="flex flex-1 flex-col p-3">
         <p className="line-clamp-2 min-h-[36px] text-[13.5px] font-semibold leading-snug text-ink-900">
           {l.title}
@@ -104,6 +115,7 @@ export function GigCard({
           </p>
         )}
 
+        {/* 4. provider, with the verified tick beside the name */}
         <div className="mt-1.5 flex items-center gap-1.5">
           <p className="truncate text-[11.5px] font-medium text-ink-600">{shop?.name}</p>
           {shop?.verified && (
@@ -114,13 +126,16 @@ export function GigCard({
           )}
         </div>
 
+        {/* 5. rating line — stars, then delivery time */}
         <div className="mt-1 flex items-center gap-2">
-          <Star value={Number(shop?.rating_avg ?? 0)} count={shop?.rating_count} />
+          <Star value={ratingValue} count={ratingCount} />
           {l.delivery_days != null && (
             <span className="text-[11px] text-ink-400">· {l.delivery_days}-day delivery</span>
           )}
         </div>
 
+        {/* 6. price on its own line, pinned to the bottom so cards in a row
+            line up even when the description runs to two lines */}
         <p className="mt-auto pt-2 text-[14px] font-extrabold text-ink-900">
           From {naira(l.price)}
         </p>

@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSession } from "@/lib/supabase/server";
-import { getListing, getShopReviews, getShopListings } from "@/lib/queries";
+import { getListing, getShopReviews, getShopListings, getGigPackages, getGigReviews, getReviewableGigOrder } from "@/lib/queries";
 import { naira, cn, discountPercent } from "@/lib/utils";
 import { Star, VerifiedBadge, Avatar, Badge, Alert } from "@/components/ui";
 import { AddToCartBar } from "@/components/add-to-cart-bar";
 import { ChatWithSeller } from "@/components/chat-with-seller";
 import { ListingCard } from "@/components/cards";
 import { QuoteForm } from "@/components/quote-form";
+import { GigPackages } from "@/components/gig-packages";
+import { GigReviewForm } from "@/components/gig-review-form";
 import { Gallery } from "@/components/gallery";
 import { WishlistButton } from "@/components/wishlist-button";
 import { getWishlistIds } from "@/lib/queries";
@@ -20,14 +22,27 @@ export default async function ListingPage({ params }: { params: { id: string } }
   if (!l) notFound();
 
   const shop = l.shops!;
-  const [reviews, more, savedIds] = await Promise.all([
+  const isService = l.type === "service";
+
+  const [reviews, more, savedIds, packages, gigReviews, reviewableOrder] = await Promise.all([
     getShopReviews(shop.id, 4),
     getShopListings(shop.id),
     session ? getWishlistIds(session.user.id) : Promise.resolve([] as string[]),
+    // A gig's own tiers and its own reviews (sql/0021). A product gets
+    // empty arrays and renders exactly as before.
+    isService ? getGigPackages(l.id) : Promise.resolve([]),
+    isService ? getGigReviews(l.id, 6) : Promise.resolve([]),
+    isService && session ? getReviewableGigOrder(session.user.id, l.id) : Promise.resolve(null),
   ]);
   const saved = savedIds.includes(l.id);
-  const isService = l.type === "service";
   const inStock = l.stock > 0 || isService;
+
+  // A gig is judged on its own stars; fall back to the shop's when it has
+  // no reviews yet, which is still a real signal.
+  const gigRatingCount = Number(l.rating_count ?? 0);
+  const gigRating = gigRatingCount > 0 ? Number(l.rating_avg) : Number(shop.rating_avg);
+  const gigRatingTotal = gigRatingCount > 0 ? gigRatingCount : Number(shop.rating_count);
+  const alreadyReviewed = gigReviews.some((r: any) => r.buyer_id === session?.user.id);
 
   const breakdown = [5, 4, 3, 2, 1].map((r) => ({
     r,
@@ -90,10 +105,72 @@ export default async function ListingPage({ params }: { params: { id: string } }
           </div>
         )}
 
+        {/* Gig reviews — the gig's OWN stars (sql/0021), not the shop's.
+            A shop with one great gig and one poor one must not show the
+            same rating on both. */}
+        {isService && (
+          <div className="nm-card p-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-[14px] font-bold text-ink-900">Reviews for this gig</h2>
+              {gigRatingTotal > 0 && (
+                <span className="text-[12px] text-ink-400">
+                  {gigRatingTotal} {gigRatingTotal === 1 ? "review" : "reviews"}
+                </span>
+              )}
+            </div>
+
+            <div className="mt-2 flex items-center gap-2">
+              <p className="text-[26px] font-extrabold leading-none text-ink-900">
+                {gigRating > 0 ? gigRating.toFixed(1) : "New"}
+              </p>
+              <Star value={gigRating} count={gigRatingTotal} />
+            </div>
+
+            <div className="mt-3 divide-y divide-[var(--line)]">
+              {gigReviews.length === 0 && (
+                <p className="py-3 text-[13px] text-ink-500">
+                  No reviews for this gig yet. Buyers can review it once the work is delivered.
+                </p>
+              )}
+              {gigReviews.map((r: any) => (
+                <div key={r.id} className="py-3">
+                  <div className="flex items-center gap-2">
+                    <Avatar name={r.profiles_public?.full_name} src={r.profiles_public?.avatar_url} size={28} />
+                    <p className="text-[12.5px] font-semibold text-ink-900">
+                      {r.profiles_public?.full_name ?? "Buyer"}
+                    </p>
+                    <Star value={r.rating} className="ml-auto" />
+                  </div>
+                  {r.body && <p className="mt-1.5 text-[13px] leading-relaxed text-ink-600">{r.body}</p>}
+                  {r.seller_reply && (
+                    <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-[12.5px] text-ink-600">
+                      <span className="font-semibold text-ink-800">Provider replied: </span>{r.seller_reply}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* The form only appears for a buyer who actually received this
+                gig and has not reviewed it yet. */}
+            {reviewableOrder && !alreadyReviewed && (
+              <div className="mt-3">
+                <GigReviewForm
+                  orderId={reviewableOrder.id}
+                  listingId={l.id}
+                  gigTitle={l.title}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* reviews */}
         <div className="nm-card p-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-[14px] font-bold text-ink-900">Reviews</h2>
+            <h2 className="text-[14px] font-bold text-ink-900">
+              {isService ? `Reviews for ${shop.name}` : "Reviews"}
+            </h2>
             <Link href={`/shop/${shop.slug}#reviews`} className="text-[12.5px] font-semibold text-brand-600">See all →</Link>
           </div>
           <div className="mt-2.5 flex items-center gap-4">
@@ -182,11 +259,19 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
         {/* buy box / quote box */}
         {isService ? (
-          <QuoteForm
+          <GigPackages
             listingId={l.id}
-            shopId={shop.id}
-            price={Number(l.price)}
-            shopName={shop.name}
+            title={l.title}
+            image={l.images?.[0] ?? null}
+            packages={packages}
+            shop={{
+              id: shop.id,
+              slug: shop.slug,
+              name: shop.name,
+              logo_url: shop.logo_url,
+              city: shop.city,
+              state: shop.state,
+            }}
             signedIn={!!session}
             canOrderInCity={
               // An online gig has no coverage area, so a buyer in another
