@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { naira } from "@/lib/utils";
 import { Spinner } from "@/components/ui";
-import { composePlanMessage, openChatWithDraft } from "@/lib/offer-draft";
+import { fetchPlanDraft, openChatWithDraft } from "@/lib/offer-draft";
 import type { GigPackage } from "@/lib/queries";
 
 /**
@@ -82,14 +82,12 @@ export function GigPackages({
     setBusy(true);
     setErr("");
     try {
-      const draft = composePlanMessage({
-        title,
-        packageName: pkg?.name ?? null,
-        price: pkgPrice,
-        features: pkg?.features ?? null,
-        deliveryDays: pkg?.delivery_days ?? null,
-      });
-      const href = await openChatWithDraft({ shopId: shop.id, draft });
+      // The server builds the text, so the bytes in the composer are the
+      // same bytes `send_chat_message` will compare against. See
+      // sql/0027 — a client-formatted draft would drift and re-block.
+      const packageIds = pkg?.id ? [pkg.id] : [];
+      const draft = await fetchPlanDraft(packageIds);
+      const href = await openChatWithDraft({ shopId: shop.id, draft, packageIds });
       router.push(href);
     } catch (e: any) {
       setBusy(false);

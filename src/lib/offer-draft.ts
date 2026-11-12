@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/client";
 /**
  * The "I want this plan" message a buyer sends instead of checking out.
  *
- * ── Why a message and not a cart line ─────────────────────────────
+ * ── Why a message and not a cart line ──────────────────────────────────
  * A service is not stock: nothing is shipped, nothing is picked up, and the
  * price is only real once the provider has agreed to the work. Putting a gig
  * straight into the cart let a buyer pay for a plan the provider had never
@@ -11,56 +11,40 @@ import { createClient } from "@/lib/supabase/client";
  * the buyer's first move is to say which plan they want — in the form the
  * seller can price against.
  *
- * The body is composed here, not in the component, because the gig page and
- * the cart must produce the SAME message: a buyer who reached the plan from
- * the cart and a buyer who reached it from the listing should look identical
- * to the seller.
+ * ── Why the SERVER composes the text ───────────────────────────────────
+ * The chat guard refuses a message that contains a blocked word, and a
+ * seller is free to name a plan feature "DM design pack", "IG post design"
+ * or "WhatsApp sticker pack" — all ordinary service names, all caught by
+ * the `dm` / `ig` / `snap` / `whatsapp` app rules. So the app was blocking
+ * its own message: the buyer pressed Send on the plan the app had just
+ * written and got "Message not sent".
  *
- * ── Why it is only PRE-FILLED ─────────────────────────────────────
- * `openChatWithDraft` navigates to the thread with the text already in the
- * composer. Nothing is sent. The buyer can edit it, add a photo of their
- * brief, or delete it and type their own — and they press Send themselves.
- * An auto-sent message would be a stranger speaking in the buyer's name.
+ * The fix is not a client-side "skip the check" flag — anyone could set
+ * that and then type a phone number. Instead `nm_plan_draft()` builds the
+ * text in Postgres, and `send_chat_message()` exempts a message only when
+ * it starts with that exact server-built string. The buyer cannot forge
+ * the prefix because they do not choose it, and anything they append after
+ * it is still checked.
+ *
+ * That is why this file no longer formats the message itself: if the client
+ * built the text and the server re-derived it, one stray space would break
+ * the prefix match and re-block the message — the same bug, one layer down.
  */
-export function composePlanMessage({
-  title,
-  packageName,
-  price,
-  features,
-  deliveryDays,
-}: {
-  /** The gig's title, used as the headline when there is no plan name. */
-  title?: string | null;
-  /** "Basic" / "Standard" / "Premium". */
-  packageName?: string | null;
-  /** What the buyer pays — the discounted figure, not the list price. */
-  price: number;
-  features?: string[] | null;
-  deliveryDays?: number | null;
-}): string {
-  const money = new Intl.NumberFormat("en-NG", {
-    style: "currency",
-    currency: "NGN",
-    maximumFractionDigits: 0,
-  })
-    .format(price)
-    // Intl emits the naira glyph, but a fallback sans on an Android device
-    // can render it as a box. "₦" is the same character, spelled directly.
-    .replace(/^NGN\s?/, "₦");
 
-  const lines: string[] = ["I want this plan", money];
-
-  for (const f of features ?? []) {
-    const clean = String(f ?? "").trim();
-    if (clean) lines.push(`✓ ${clean}`);
-  }
-
-  if (deliveryDays != null) lines.push(`✓ ${deliveryDays}-day delivery`);
-
-  const label = (packageName ?? "").trim() || (title ?? "").trim();
-  if (label) lines.push(label);
-
-  return lines.join("\n");
+/**
+ * Ask the server for the canonical plan text.
+ *
+ * Returns the exact bytes `send_chat_message()` will compare against, so
+ * the composer shows the buyer precisely what will be exempt.
+ */
+export async function fetchPlanDraft(packageIds: string[]): Promise<string> {
+  if (!packageIds.length) return "";
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("nm_plan_draft", {
+    p_package_ids: packageIds,
+  });
+  if (error) throw new Error(error.message);
+  return typeof data === "string" ? data : "";
 }
 
 /**
@@ -72,14 +56,22 @@ export function composePlanMessage({
  * seeds the composer, and the param is dropped from the address bar so a
  * refresh (or a shared link) does not resurrect a message the buyer already
  * sent or deleted.
+ *
+ * The package ids travel with it. They are what lets the server rebuild the
+ * canonical text at send time and decide whether the message is the app's
+ * own plan — the ids are not a secret, and they grant nothing: the server
+ * still checks that the message starts with the text those ids produce.
  */
 export async function openChatWithDraft({
   shopId,
   draft,
+  packageIds,
   orderId,
 }: {
   shopId: string;
   draft?: string | null;
+  /** The gig package(s) the draft was built from. */
+  packageIds?: string[] | null;
   orderId?: string | null;
 }): Promise<string> {
   const supabase = createClient();
@@ -92,6 +84,10 @@ export async function openChatWithDraft({
   const chatId = Array.isArray(data) ? data[0] : data;
   if (!chatId) throw new Error("Could not open the chat. Please try again.");
 
-  const q = draft ? `?draft=${encodeURIComponent(draft)}` : "";
+  const params = new URLSearchParams();
+  if (draft) params.set("draft", draft);
+  if (packageIds?.length) params.set("pkgs", packageIds.join(","));
+
+  const q = params.toString() ? `?${params.toString()}` : "";
   return `/chats/${chatId}${q}`;
 }

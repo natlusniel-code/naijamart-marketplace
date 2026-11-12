@@ -9,7 +9,7 @@ export default async function ChatPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams?: { draft?: string };
+  searchParams?: { draft?: string; pkgs?: string };
 }) {
   const session = await getSession();
   if (!session) redirect(`/signin?next=%2Fchats%2F${params.id}`);
@@ -67,6 +67,11 @@ export default async function ChatPage({
       initialMessages={messages ?? []}
       initialOffers={(offers ?? []) as any}
       initialDraft={searchParams?.draft ?? ""}
+      packageIds={
+        searchParams?.pkgs
+          ? searchParams.pkgs.split(",").map((s) => s.trim()).filter(Boolean)
+          : []
+      }
     />
   );
 }

@@ -71,6 +71,7 @@ export function ChatThread({
   initialOffers,
   basePath = "/chats",
   initialDraft,
+  packageIds,
 }: {
   chatId: string;
   meId: string;
@@ -96,6 +97,12 @@ export function ChatThread({
    * Send themselves.
    */
   initialDraft?: string;
+  /**
+   * The gig package(s) the draft was built from. Sent with the message so
+   * `send_chat_message` can rebuild the canonical plan text and exempt it
+   * from the block list (sql/0027). Empty for a hand-typed message.
+   */
+  packageIds?: string[];
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
@@ -115,6 +122,54 @@ export function ChatThread({
    */
   const [blocked, setBlocked] = useState("");
   const bottom = useRef<HTMLDivElement | null>(null);
+  const box = useRef<HTMLTextAreaElement | null>(null);
+
+  /**
+   * Grow the composer to fit what is being typed.
+   *
+   * A single-line input hid everything past the first line, so a buyer
+   * writing a brief could not read back what they were about to send. The
+   * textarea is measured against its own scrollHeight and capped at 40vh —
+   * past that it scrolls internally rather than eating the message list.
+   */
+  const grow = useCallback(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const max = Math.round(window.innerHeight * 0.4);
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  }, []);
+
+  useEffect(() => {
+    grow();
+  }, [text, grow]);
+
+  /**
+   * Lift the composer by exactly the keyboard height.
+   *
+   * On iOS and Android the on-screen keyboard does not resize the layout
+   * viewport — it shrinks the *visual* viewport. So the difference between
+   * `window.innerHeight` and `visualViewport.height` is the keyboard, and
+   * that is the only thing that should move the composer. Page scroll does
+   * not touch it, because the form is `sticky bottom-0` inside the thread.
+   */
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      document.documentElement.style.setProperty("--nm-kb", `${kb}px`);
+    };
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    return () => {
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+      document.documentElement.style.removeProperty("--nm-kb");
+    };
+  }, []);
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
@@ -235,6 +290,7 @@ export function ChatThread({
       p_chat_id: chatId,
       p_body: body,
       p_image_url: null,
+      p_package_ids: packageIds?.length ? packageIds : null,
     });
 
     setBusy(false);
@@ -558,8 +614,17 @@ export function ChatThread({
         </form>
       )}
 
-      {/* composer */}
-      <form onSubmit={send} className="flex items-center gap-1.5 border-t border-[var(--line)] bg-white pt-2">
+      {/* composer — pinned to the bottom of the thread, never the page.
+          `sticky bottom-0` keeps it in place while the message list scrolls
+          behind it. The only thing that moves it is the on-screen keyboard,
+          which shrinks the visual viewport; `--nm-kb` is set from that
+          difference in the effect below, so the composer lifts by exactly
+          the keyboard height and returns when it is dismissed. */}
+      <form
+        onSubmit={send}
+        className="sticky bottom-0 z-20 -mx-1 flex items-end gap-1.5 border-t border-[var(--line)] bg-white/95 px-1 pb-1 pt-2 backdrop-blur"
+        style={{ marginBottom: "var(--nm-kb, 0px)" }}
+      >
         <label className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-xl text-ink-400 hover:bg-slate-50 hover:text-brand-600">
           {uploading ? <Spinner className="!h-4 !w-4" /> : "📎"}
           <input type="file" accept="image/*" className="hidden"
@@ -571,11 +636,21 @@ export function ChatThread({
             Offer
           </button>
         )}
-        <input
-          className="nm-input !py-2.5"
+        <textarea
+          ref={box}
+          rows={1}
+          className="nm-input max-h-[40vh] min-h-[42px] flex-1 resize-none !py-2.5 leading-relaxed"
           placeholder="Message…"
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter sends; Shift+Enter is a new line. On a phone the return
+            // key inserts a line instead, because there is a Send button.
+            if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window)) {
+              e.preventDefault();
+              void send();
+            }
+          }}
         />
         <button type="submit" disabled={busy || !text.trim()} className="nm-btn-primary shrink-0 !px-3.5 !py-2.5">
           Send

@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui";
-import { composePlanMessage, openChatWithDraft } from "@/lib/offer-draft";
+import { fetchPlanDraft, openChatWithDraft } from "@/lib/offer-draft";
+import { createClient } from "@/lib/supabase/client";
 import type { CartShop } from "@/lib/cart";
 
 /**
@@ -17,6 +18,14 @@ import type { CartShop } from "@/lib/cart";
  * A shop can hold more than one service line (Basic and Premium are separate
  * lines), so the draft lists each one under its own price rather than
  * pretending they are one plan.
+ *
+ * ── Why the package ids are resolved here ──────────────────────────────
+ * A cart line stores `listingId` + `packageTier`, not the `gig_packages.id`
+ * — the cart is written before the package row is known to the client. But
+ * the server needs the ids to rebuild the canonical plan text (sql/0027),
+ * so they are looked up from the listing and tier first. Without this the
+ * draft would have no ids, the server could not verify the prefix, and the
+ * buyer's own plan message would be blocked again.
  */
 export function StartConversationButton({
   shop,
@@ -39,24 +48,9 @@ export function StartConversationButton({
     setBusy(true);
     setErr("");
     try {
-      // One line: the plan message for that line. Several lines: a short
-      // list, so the provider sees every plan the buyer is asking about.
-      const draft =
-        shop.lines.length === 1
-          ? composePlanMessage({
-              title: shop.lines[0].title,
-              packageName: tierLabel(shop.lines[0].title, shop.lines[0].packageTier),
-              price: shop.lines[0].price,
-            })
-          : [
-              "I want these plans",
-              ...shop.lines.map(
-                (l) =>
-                  `• ${tierLabel(l.title, l.packageTier) ?? l.title} — ${nairaText(l.price)}`,
-              ),
-            ].join("\n");
-
-      const href = await openChatWithDraft({ shopId: shop.shopId, draft });
+      const packageIds = await resolvePackageIds(shop);
+      const draft = await fetchPlanDraft(packageIds);
+      const href = await openChatWithDraft({ shopId: shop.shopId, draft, packageIds });
       router.push(href);
     } catch (e: any) {
       setBusy(false);
@@ -74,13 +68,43 @@ export function StartConversationButton({
   );
 }
 
-/** "Logo creation — Basic" → "Basic". Falls back to the whole title. */
-function tierLabel(title: string, tier?: string | null): string | null {
-  if (tier) return tier.charAt(0).toUpperCase() + tier.slice(1);
-  const parts = title.split("—");
-  return parts.length > 1 ? parts[parts.length - 1].trim() : title;
-}
+/**
+ * Map each service line to its `gig_packages.id`.
+ *
+ * One query for the whole basket: the listing ids are collected, the
+ * packages for those listings are fetched, and each line is matched on its
+ * tier. A line whose tier is missing falls back to the listing's cheapest
+ * package, which is what the gig page shows first.
+ */
+async function resolvePackageIds(shop: CartShop): Promise<string[]> {
+  const serviceLines = shop.lines.filter((l) => l.isService);
+  if (!serviceLines.length) return [];
 
-function nairaText(n: number) {
-  return `₦${new Intl.NumberFormat("en-NG", { maximumFractionDigits: 0 }).format(n)}`;
+  const listingIds = Array.from(new Set(serviceLines.map((l) => l.listingId)));
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("gig_packages")
+    .select("id,listing_id,tier,price,sort_order")
+    .in("listing_id", listingIds)
+    .order("sort_order");
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as {
+    id: string;
+    listing_id: string;
+    tier: string | null;
+    price: number;
+    sort_order: number | null;
+  }[];
+
+  const ids: string[] = [];
+  for (const line of serviceLines) {
+    const forListing = rows.filter((r) => r.listing_id === line.listingId);
+    if (!forListing.length) continue;
+    const wanted = (line.packageTier ?? "").toLowerCase();
+    const match =
+      forListing.find((r) => (r.tier ?? "").toLowerCase() === wanted) ?? forListing[0];
+    if (match) ids.push(match.id);
+  }
+  return ids;
 }
