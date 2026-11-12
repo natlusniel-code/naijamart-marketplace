@@ -21,6 +21,14 @@ export function ListingForm({
   const editing = !!listing;
 
   const [type, setType] = useState<"product" | "service">(listing?.type ?? "product");
+  /**
+   * Which kind of service this is (sql/0019). Required for a service and
+   * meaningless for a product, so it is cleared when the seller switches
+   * back to a product — the database rejects a product that carries one.
+   */
+  const [serviceMode, setServiceMode] = useState<"physical" | "online">(
+    listing?.service_mode ?? "physical",
+  );
   const [form, setForm] = useState({
     title: listing?.title ?? "",
     description: listing?.description ?? "",
@@ -32,6 +40,7 @@ export function ListingForm({
     free_delivery_threshold: listing?.free_delivery_threshold != null ? String(listing.free_delivery_threshold) : "",
     service_area: listing?.service_area ?? "",
     needs_home_visit: listing?.needs_home_visit ?? false,
+    delivery_days: listing?.delivery_days != null ? String(listing.delivery_days) : "",
   });
   const [images, setImages] = useState<string[]>(listing?.images ?? []);
   const [tags, setTags] = useState<string[]>(listing?.tags ?? []);
@@ -122,10 +131,15 @@ export function ListingForm({
       original_price: form.original_price ? Number(form.original_price) : null,
       stock: type === "product" ? Number(form.stock) : 0,
       images,
-      delivery_fee_override: form.delivery_fee_override ? Number(form.delivery_fee_override) : null,
-      free_delivery_threshold: form.free_delivery_threshold ? Number(form.free_delivery_threshold) : null,
-      service_area: type === "service" ? form.service_area || null : null,
-      needs_home_visit: type === "service" ? form.needs_home_visit : false,
+      // A service is performed, never shipped, so it carries no delivery
+      // fee. The database clears these too (sql/0019) — this keeps the
+      // saved row honest rather than relying on the trigger alone.
+      delivery_fee_override: type === "product" && form.delivery_fee_override ? Number(form.delivery_fee_override) : null,
+      free_delivery_threshold: type === "product" && form.free_delivery_threshold ? Number(form.free_delivery_threshold) : null,
+      service_area: type === "service" && serviceMode === "physical" ? form.service_area || null : null,
+      needs_home_visit: type === "service" && serviceMode === "physical" ? form.needs_home_visit : false,
+      service_mode: type === "service" ? serviceMode : null,
+      delivery_days: type === "service" && form.delivery_days ? Number(form.delivery_days) : null,
       status,
     };
 
@@ -248,16 +262,74 @@ export function ListingForm({
             </div>
           ) : (
             <div className="space-y-2.5">
+              {/* Which kind of service. This decides whether a location
+                  filter can ever hide the gig, so it is asked plainly
+                  rather than buried in a settings field. */}
               <div>
-                <label className="nm-label">Service area</label>
-                <input className="nm-input" value={form.service_area}
-                  onChange={(e) => setForm((f) => ({ ...f, service_area: e.target.value }))} placeholder="Abeokuta South and nearby LGAs" />
+                <label className="nm-label">Type of service</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setServiceMode("physical")}
+                    className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                      serviceMode === "physical"
+                        ? "border-brand-500 bg-brand-50/60 ring-1 ring-brand-500"
+                        : "border-[var(--line)] bg-white hover:border-brand-300"
+                    }`}
+                  >
+                    <span className="block text-[12.5px] font-bold text-ink-900">🏠 Home visit</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-ink-500">
+                      Plumbing, bricklaying, repairs — you travel to the customer
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setServiceMode("online")}
+                    className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                      serviceMode === "online"
+                        ? "border-brand-500 bg-brand-50/60 ring-1 ring-brand-500"
+                        : "border-[var(--line)] bg-white hover:border-brand-300"
+                    }`}
+                  >
+                    <span className="block text-[12.5px] font-bold text-ink-900">🌐 Online</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-ink-500">
+                      Design, web, writing — delivered over the internet
+                    </span>
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">
+                  {serviceMode === "online"
+                    ? "Online gigs are shown to buyers in every city — there is no location limit."
+                    : "Home-visit gigs are shown to buyers in your city, and bookings follow the usual local rule."}
+                </p>
               </div>
-              <label className="flex items-center gap-2 text-[12.5px] text-ink-700">
-                <input type="checkbox" checked={form.needs_home_visit} className="h-4 w-4 rounded text-brand-500"
-                  onChange={(e) => setForm((f) => ({ ...f, needs_home_visit: e.target.checked }))} />
-                I come to the customer (&quot;home visit&quot;)
-              </label>
+
+              {serviceMode === "physical" && (
+                <>
+                  <div>
+                    <label className="nm-label">Service area</label>
+                    <input className="nm-input" value={form.service_area}
+                      onChange={(e) => setForm((f) => ({ ...f, service_area: e.target.value }))} placeholder="Abeokuta South and nearby LGAs" />
+                  </div>
+                  <label className="flex items-center gap-2 text-[12.5px] text-ink-700">
+                    <input type="checkbox" checked={form.needs_home_visit} className="h-4 w-4 rounded text-brand-500"
+                      onChange={(e) => setForm((f) => ({ ...f, needs_home_visit: e.target.checked }))} />
+                    I come to the customer (&quot;home visit&quot;)
+                  </label>
+                </>
+              )}
+
+              <div>
+                <label className="nm-label">Delivery time (days)</label>
+                <input className="nm-input" inputMode="numeric" value={form.delivery_days}
+                  onChange={(e) => setForm((f) => ({ ...f, delivery_days: e.target.value.replace(/\D/g, "") }))}
+                  placeholder="e.g. 3" />
+                <p className="mt-1 text-[11px] text-ink-400">How long the job takes. Shown on your gig card.</p>
+              </div>
+
+              <div className="rounded-xl bg-brand-50/70 px-3 py-2 text-[11.5px] leading-relaxed text-brand-900">
+                Services carry <strong>no delivery fee</strong> — a gig is performed, not shipped.
+              </div>
             </div>
           )}
 

@@ -24,6 +24,16 @@ export type Listing = {
   status: string;
   service_area: string | null;
   needs_home_visit: boolean;
+  /**
+   * Which kind of service this is (sql/0019). Null for a product.
+   *
+   *   physical — the provider travels, so coverage applies
+   *   online   — the work crosses no distance, so no location filter
+   *              may ever hide it
+   */
+  service_mode: "physical" | "online" | null;
+  /** How long the gig takes, in days. Null when the seller did not say. */
+  delivery_days: number | null;
   delivery_fee_override: number | null;
   free_delivery_threshold: number | null;
   shops?: ShopLite;
@@ -67,7 +77,7 @@ const SHOP_COLS =
  * typed result.
  */
 const LISTING_COLS =
-  `id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`;
+  `id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,service_mode,delivery_days,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`;
 
 export async function getCategories() {
   const supabase = createClient();
@@ -206,6 +216,8 @@ export async function searchListings(opts: {
   verifiedOnly?: boolean;
   sort?: string;
   type?: "product" | "service";
+  /** Narrow a service search to physical or online gigs (sql/0019). */
+  serviceMode?: "physical" | "online";
   limit?: number;
 }) {
   const supabase = createClient();
@@ -223,6 +235,7 @@ export async function searchListings(opts: {
     p_sort: opts.sort || null,
     p_limit: opts.limit ?? 60,
     p_offset: 0,
+    p_service_mode: opts.serviceMode ?? null,
   });
 
   // A failed RPC must not look like "no results" — that is exactly how the
@@ -260,6 +273,7 @@ export async function getStorefrontFeed(
   type: "product" | "service" = "product",
   limit = 8,
   seed?: string,
+  serviceMode?: "physical" | "online",
 ) {
   const supabase = createClient();
 
@@ -268,6 +282,7 @@ export async function getStorefrontFeed(
     p_type: type,
     p_limit: limit,
     p_seed: seed ?? null,
+    p_service_mode: serviceMode ?? null,
   });
 
   if (error) {
@@ -293,7 +308,10 @@ export async function getListing(id: string) {
   const supabase = createClient();
   const { data } = await supabase
     .from("listings")
-    .select(`id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`)
+    // LISTING_COLS, not a hand-written list: this function used to carry its
+    // own copy, which silently dropped `service_mode` and made an online gig
+    // render as a home-visit one. One list, one place to add a column.
+    .select(LISTING_COLS)
     .eq("id", id)
     .maybeSingle();
   return (data ?? null) as unknown as Listing | null;

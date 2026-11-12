@@ -20,6 +20,13 @@ export type CartShop = {
     originalPrice?: number | null;
     quantity: number;
     image: string | null;
+    /**
+     * Whether this line is a gig (sql/0019). A service is performed, not
+     * shipped, so a basket of only services owes no delivery fee — and the
+     * buyer must see that ₦0 before they pay, not discover it afterwards.
+     * Optional so carts saved before this field existed still parse.
+     */
+    isService?: boolean;
   }[];
 };
 
@@ -59,6 +66,8 @@ export function addToCart(item: {
   originalPrice?: number | null;
   image?: string | null;
   quantity?: number;
+  /** True when the listing being added is a gig (sql/0019). */
+  isService?: boolean;
 }) {
   const cart = readCart();
   const shop =
@@ -87,6 +96,7 @@ export function addToCart(item: {
       originalPrice: item.originalPrice ?? null,
       quantity: item.quantity ?? 1,
       image: item.image ?? null,
+      isService: item.isService ?? false,
     });
 
   writeCart(cart);
@@ -133,6 +143,11 @@ export function shopSubtotal(shop: CartShop) {
 
 export function shopDelivery(shop: CartShop) {
   if (shop.fulfilment === "pickup") return 0;
+  // A basket of only gigs is performed, not shipped: no courier fee. Mixed
+  // baskets still pay, because the goods in them really do travel. This
+  // mirrors place_order, which charges 0 when the basket holds no product.
+  const hasGoods = shop.lines.some((l) => !l.isService);
+  if (!hasGoods) return 0;
   const sub = shopSubtotal(shop);
   if (shop.freeThreshold != null && sub >= shop.freeThreshold) return 0;
   return shop.deliveryFee;

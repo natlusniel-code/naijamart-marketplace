@@ -52,8 +52,14 @@ export default async function ListingPage({ params }: { params: { id: string } }
           </p>
           {isService && (
             <div className="mt-3 flex flex-wrap gap-2">
+              {l.service_mode === "online" ? (
+                <Badge tone="green">🌐 Online — works anywhere in Nigeria</Badge>
+              ) : (
+                <Badge tone="blue">🏠 Home visit</Badge>
+              )}
               {l.service_area && <Badge tone="blue">Area: {l.service_area}</Badge>}
-              {l.needs_home_visit && <Badge tone="violet">Home visit</Badge>}
+              {l.needs_home_visit && <Badge tone="violet">Provider travels</Badge>}
+              {l.delivery_days != null && <Badge tone="gray">{l.delivery_days}-day delivery</Badge>}
               <Badge tone="gray">Quote first</Badge>
             </div>
           )}
@@ -183,13 +189,16 @@ export default async function ListingPage({ params }: { params: { id: string } }
             shopName={shop.name}
             signedIn={!!session}
             canOrderInCity={
+              // An online gig has no coverage area, so a buyer in another
+              // city must still be able to book it (sql/0019).
+              l.service_mode === "online" ||
               !session?.profile.city || !shop.city || session.profile.city.toLowerCase() === shop.city.toLowerCase()
             }
           />
         ) : inStock ? (
           <div className="hidden lg:block">
             <AddToCartBar
-              listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [] }}
+              listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [], type: l.type }}
               shop={{
                 id: shop.id, slug: shop.slug, name: shop.name, logo_url: shop.logo_url,
                 city: shop.city, state: shop.state, delivery_fee: Number(shop.delivery_fee),
@@ -212,7 +221,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
       {!isService && inStock && (
         <div className="lg:hidden">
           <AddToCartBar
-            listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [] }}
+            listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [], type: l.type }}
             shop={{
               id: shop.id, slug: shop.slug, name: shop.name, logo_url: shop.logo_url,
               city: shop.city, state: shop.state, delivery_fee: Number(shop.delivery_fee),

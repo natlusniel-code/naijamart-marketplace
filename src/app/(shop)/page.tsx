@@ -9,7 +9,8 @@ import {
   getWishlistIds,
   ALL_CITIES,
 } from "@/lib/queries";
-import { ListingCard, ShopCard, placeLabel } from "@/components/cards";
+import { ListingCard, ShopCard } from "@/components/cards";
+import { GigCard } from "@/components/gig-card";
 import { LocationFilter } from "@/components/location-filter";
 import { SectionHead, EmptyState, Badge } from "@/components/ui";
 
@@ -154,45 +155,22 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
         </section>
       )}
 
-      {/* popular services */}
+      {/* services / gigs — the sibling of the products listing above.
+          Ranked and rotated daily by the same storefront_feed as products
+          (sql/0019), so a new gig, a well-rated one and a best-selling one
+          all get their turn on page one. */}
       {services.length > 0 && (
         <section>
           <SectionHead
-            title="Popular services"
-            sub="Book a pro — pay only when you accept the quote"
+            title="Services &amp; gigs"
+            sub="Book a pro — online gigs work anywhere in Nigeria"
             action="All services"
             href={`/search?type=service${city ? `&city=${encodeURIComponent(city)}` : `&city=${ALL_CITIES}`}`}
           />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {services.map((l) => {
-              const place = placeLabel(l.shops);
-              return (
-                <Link
-                  key={l.id}
-                  href={`/listing/${l.id}`}
-                  className="flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-white p-3 shadow-card transition hover:-translate-y-0.5 hover:shadow-lift"
-                >
-                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
-                    {l.images?.[0] ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={l.images[0]} alt="" className="h-full w-full object-cover" loading="lazy" />
-                    ) : (
-                      <div className="grid h-full place-items-center text-xl">🛠️</div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13.5px] font-semibold text-ink-900">{l.title}</p>
-                    <p className="truncate text-[11.5px] text-ink-500">
-                      {l.shops?.name}
-                      {place ? ` · ${place}` : ""}
-                    </p>
-                    <p className="mt-0.5 text-[13px] font-bold text-brand-700">
-                      From ₦{Number(l.price).toLocaleString()}
-                    </p>
-                  </div>
-                </Link>
-              );
-            })}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {services.map((l) => (
+              <GigCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
+            ))}
           </div>
         </section>
       )}

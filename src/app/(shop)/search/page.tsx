@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getSession } from "@/lib/supabase/server";
 import { searchListings, getCategories, getPlaces, resolveCity, getWishlistIds, ALL_CITIES } from "@/lib/queries";
 import { ListingCard } from "@/components/cards";
+import { GigCard } from "@/components/gig-card";
 import { LocationFilter } from "@/components/location-filter";
 import { EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -12,6 +13,7 @@ export const metadata = { title: "Search" };
 type SP = {
   q?: string; category?: string; city?: string; min?: string; max?: string;
   rating?: string; pickup?: string; verified?: string; sort?: string; type?: string;
+  mode?: string;
 };
 
 export default async function SearchPage({ searchParams }: { searchParams: SP }) {
@@ -37,6 +39,7 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
       verifiedOnly: searchParams.verified === "1",
       sort: searchParams.sort,
       type: searchParams.type === "service" ? "service" : searchParams.type === "product" ? "product" : undefined,
+      serviceMode: searchParams.mode === "online" ? "online" : searchParams.mode === "physical" ? "physical" : undefined,
     }),
     session ? getWishlistIds(session.user.id) : Promise.resolve([] as string[]),
   ]);
@@ -115,6 +118,17 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
         <Link href={qs({ type: searchParams.type === "product" ? "" : "product" })} className={cn("nm-chip", searchParams.type === "product" && "nm-chip-active")}>
           Goods
         </Link>
+        {/* service-mode filter — only meaningful while browsing services */}
+        {searchParams.type === "service" && (
+          <>
+            <Link href={qs({ mode: searchParams.mode === "online" ? "" : "online" })} className={cn("nm-chip", searchParams.mode === "online" && "nm-chip-active")}>
+              🌐 Online
+            </Link>
+            <Link href={qs({ mode: searchParams.mode === "physical" ? "" : "physical" })} className={cn("nm-chip", searchParams.mode === "physical" && "nm-chip-active")}>
+              🏠 Home visit
+            </Link>
+          </>
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-[var(--line)] pt-3">
@@ -151,9 +165,13 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
         />
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {results.map((l) => (
-            <ListingCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
-          ))}
+          {results.map((l) =>
+            l.type === "service" ? (
+              <GigCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
+            ) : (
+              <ListingCard key={l.id} l={l} saved={saved.has(l.id)} signedIn={!!session} />
+            ),
+          )}
         </div>
       )}
     </div>
