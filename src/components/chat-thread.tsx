@@ -67,6 +67,7 @@ export function ChatThread({
   otherAvatar,
   shopName,
   shopLogo,
+  shopKind,
   order,
   initialMessages,
   initialOffers,
@@ -81,6 +82,14 @@ export function ChatThread({
   otherAvatar: string | null;
   shopName: string | null;
   shopLogo: string | null;
+  /**
+   * `services` | `goods` | `both`.
+   *
+   * A service-only shop performs the work, so the job is delivered and
+   * accepted here in the thread. A goods shop ships a parcel: chat is for
+   * agreeing terms, and delivery/pickup stay on the order page.
+   */
+  shopKind?: string | null;
   order: {
     id: string;
     reference: string;
@@ -114,8 +123,23 @@ export function ChatThread({
   packageIds?: string[];
 }) {
   const router = useRouter();
+  /**
+   * Only a service-only shop delivers inside the chat.
+   *
+   * A goods seller still needs the thread to agree terms, but the parcel is
+   * marked shipped and confirmed on the order page — putting a "Deliver
+   * Order" tab in front of them would offer a second, conflicting way to
+   * finish the same order.
+   */
+  const isServiceShop = shopKind === "services";
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
   const [offers, setOffers] = useState<Offer[]>(initialOffers);
+  /**
+   * Once a quote is accepted the seller's next action is to deliver, not to
+   * quote again. Derived from live state, not the initial prop, so the button
+   * flips the moment the buyer accepts without a page reload.
+   */
+  const hasAcceptedOffer = offers.some((o) => o.status === "accepted");
   const [text, setText] = useState(initialDraft ?? "");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -139,7 +163,7 @@ export function ChatThread({
    * receiver never sees it — the sender gets this one warning instead.
    */
   const [blocked, setBlocked] = useState("");
-  const bottom = useRef<HTMLDivElement | null>(null);
+  const top = useRef<HTMLDivElement | null>(null);
   const box = useRef<HTMLTextAreaElement | null>(null);
 
   /**
@@ -189,13 +213,17 @@ export function ChatThread({
     };
   }, []);
 
-  const scrollDown = useCallback(() => {
-    requestAnimationFrame(() => bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+  /**
+   * The thread reads newest-first, so "the latest message" is the top of the
+   * list — opening a chat lands on it without any scrolling.
+   */
+  const scrollTop = useCallback(() => {
+    requestAnimationFrame(() => top.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }, []);
 
   useEffect(() => {
-    scrollDown();
-  }, [messages.length, scrollDown]);
+    scrollTop();
+  }, [messages.length, scrollTop]);
 
   /**
    * Take the draft out of the address bar once it is in the composer.
@@ -238,7 +266,8 @@ export function ChatThread({
             const withoutPending = prev.filter(
               (x) => !(x.pending && x.sender_id === m.sender_id && x.body === m.body && x.image_url === m.image_url),
             );
-            return [...withoutPending, m];
+            // Newest first: a new message goes on top, not at the bottom.
+            return [m, ...withoutPending];
           });
         },
       )
@@ -330,7 +359,7 @@ export function ChatThread({
 
     if (result?.message) {
       const saved = result.message;
-      setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
+      setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [saved, ...prev]));
       setText("");
     }
   }
@@ -380,7 +409,7 @@ export function ChatThread({
       setPendingImage(null);
       if (result?.message) {
         const saved = result.message;
-        setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
+        setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [saved, ...prev]));
       }
     } catch (e: any) {
       setErr(e.message ?? "Could not send that image.");
@@ -516,7 +545,7 @@ export function ChatThread({
       {/* tabs — the conversation, and the work itself.
           Only shown once an order exists: before that there is nothing to
           deliver, and an empty second tab would just be a dead end. */}
-      {order && (
+      {order && isServiceShop && (
         <div className="mt-2 flex gap-1 rounded-xl bg-slate-100 p-1">
           {([
             { key: "chat" as const, label: "Chat" },
@@ -537,7 +566,7 @@ export function ChatThread({
       )}
 
       {/* messages */}
-      {tab === "delivery" && order ? (
+      {tab === "delivery" && order && isServiceShop ? (
         <DeliveryPanel
           orderId={order.id}
           amSeller={amSeller}
@@ -609,9 +638,20 @@ export function ChatThread({
                 {busy ? <Spinner /> : `Accept offer · ${naira(o.price)}`}
               </button>
             )}
+            {/* The seller's next move after acceptance is the delivery, so the
+                card offers it directly instead of leaving them to find the tab. */}
+            {amSeller && isServiceShop && o.status === "accepted" && order && (
+              <button
+                type="button"
+                onClick={() => setTab("delivery")}
+                className="nm-btn-primary mt-2 w-full !py-2"
+              >
+                Deliver order
+              </button>
+            )}
           </div>
         ))}
-        <div ref={bottom} />
+        <div ref={top} />
       </div>
       )}
 
@@ -730,12 +770,20 @@ export function ChatThread({
           <input type="file" accept="image/*" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) stageImage(f); e.currentTarget.value = ""; }} />
         </label>
-        {amSeller && (
+        {amSeller && isServiceShop && hasAcceptedOffer && order ? (
+          <button
+            type="button"
+            onClick={() => setTab("delivery")}
+            className="shrink-0 rounded-xl bg-brand-500 px-2.5 py-2 text-[11.5px] font-bold text-white hover:bg-brand-600"
+          >
+            Deliver
+          </button>
+        ) : amSeller ? (
           <button type="button" onClick={() => setOfferOpen((o) => !o)}
             className="shrink-0 rounded-xl border border-[var(--line)] px-2.5 py-2 text-[11.5px] font-semibold text-ink-700 hover:bg-slate-50">
             Offer
           </button>
-        )}
+        ) : null}
         <textarea
           ref={box}
           rows={1}

@@ -45,6 +45,13 @@ export default async function ChatsPage() {
     return new Date(lb).getTime() - new Date(la).getTime();
   });
 
+  // One badge per thread, so a buyer with several conversations can see which
+  // one is waiting on them instead of a single number on the tab bar.
+  const { data: unreadRows } = await supabase.rpc("chat_unread_counts");
+  const unreadByChat = new Map<string, number>(
+    ((unreadRows ?? []) as any[]).map((r) => [r.chat_id, Number(r.unread) || 0]),
+  );
+
   if (sorted.length === 0) {
     return (
       <div>
@@ -69,6 +76,7 @@ export default async function ChatsPage() {
           const person = people[otherId];
           const last = c.messages?.slice(-1)[0];
           const amSeller = c.seller_id === uid;
+          const unread = unreadByChat.get(c.id) ?? 0;
           return (
             <Link key={c.id} href={`/chats/${c.id}`} className="flex items-start gap-3 px-4 py-3 transition hover:bg-slate-50/70">
               <Avatar name={person?.full_name ?? c.shops?.name} src={person?.avatar_url} size={42} />
@@ -91,6 +99,14 @@ export default async function ChatsPage() {
                   {last?.sender_id === uid ? "You: " : ""}{last?.body ?? "No messages yet — say hello 👋"}
                 </p>
               </div>
+              {unread > 0 && (
+                <span
+                  className="mt-1 grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-brand-500 px-1.5 text-[10.5px] font-bold text-white"
+                  aria-label={`${unread} unread`}
+                >
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
             </Link>
           );
         })}

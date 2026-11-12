@@ -33,6 +33,12 @@ export default async function SellerOrdersPage({ searchParams }: { searchParams:
 
   const list = (all ?? []) as any[];
 
+  // A service order is performed, not shipped. `orders.is_service` is set by
+  // accept_offer; the shop kind is the fallback for older rows that predate
+  // the column, so a service shop never shows a shipping button.
+  const shopIsService = session.shop.kind === "services";
+  for (const o of list) o.is_service = !!o.is_service || shopIsService;
+
   // orders.buyer_id → auth.users (no FK to profiles), so names are joined in memory.
   const buyerIds = Array.from(new Set(list.map((o) => o.buyer_id).filter(Boolean)));
   const { data: buyerRows } = buyerIds.length
@@ -102,7 +108,9 @@ export default async function SellerOrdersPage({ searchParams }: { searchParams:
                       ))}
                     </ul>
                     <p className="mt-1 text-[11.5px] text-ink-400">
-                      {o.fulfilment === "pickup" ? "Pickup" : "Delivery"} · {o.address ?? "—"}
+                      {o.is_service
+                        ? "Service · delivered in chat"
+                        : `${o.fulfilment === "pickup" ? "Pickup" : "Delivery"} · ${o.address ?? "—"}`}
                     </p>
                   </div>
 
@@ -133,7 +141,7 @@ export default async function SellerOrdersPage({ searchParams }: { searchParams:
                     <AcceptDecline orderId={o.id} />
                   ) : (
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <AdvanceOrder orderId={o.id} status={o.status} fulfilment={o.fulfilment} />
+                      <AdvanceOrder orderId={o.id} status={o.status} fulfilment={o.fulfilment} isService={o.is_service} />
                       <Link href={`/orders/${o.id}`} className="nm-btn-ghost w-full !py-2 !text-[12.5px]">Order details</Link>
                     </div>
                   )}

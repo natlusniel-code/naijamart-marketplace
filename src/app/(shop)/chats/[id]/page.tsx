@@ -20,7 +20,7 @@ export default async function ChatPage({
   const { data: chat } = await supabase
     .from("chats")
     .select(`id,buyer_id,seller_id,shop_id,order_id,
-      shops(name,logo_url,slug),
+      shops(name,logo_url,slug,kind),
       orders(id,reference,status,total,fulfilment,promised_delivery_at,delivery_days)`)
     .eq("id", params.id)
     .maybeSingle();
@@ -43,12 +43,13 @@ export default async function ChatPage({
       .from("messages")
       .select("id,sender_id,body,image_url,created_at,read_at,delivered_at")
       .eq("chat_id", params.id)
-      .order("created_at"),
+      // Newest first: the thread reads top-down from the latest message.
+      .order("created_at", { ascending: false }),
     supabase
       .from("offers")
       .select("id,price,scope,timeline,status,seller_id,image_url,created_at")
       .eq("chat_id", params.id)
-      .order("created_at"),
+      .order("created_at", { ascending: false }),
   ]);
 
   return (
@@ -60,6 +61,7 @@ export default async function ChatPage({
       otherAvatar={other?.avatar_url ?? null}
       shopName={c.shops?.name ?? null}
       shopLogo={c.shops?.logo_url ?? null}
+      shopKind={c.shops?.kind ?? null}
       order={c.orders ? {
         id: c.orders.id, reference: c.orders.reference, status: c.orders.status,
         total: Number(c.orders.total), fulfilment: c.orders.fulfilment,

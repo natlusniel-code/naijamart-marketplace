@@ -66,17 +66,30 @@ export function AdvanceOrder({
   orderId,
   status,
   fulfilment,
+  isService = false,
 }: {
   orderId: string;
   status: string;
   fulfilment: string;
+  isService?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const next =
-    ["paid", "accepted"].includes(status)
+  /**
+   * A service has no parcel, so it has no shipping or pickup step.
+   *
+   * "Mark ready for pickup" on a logo design is nonsense to the seller and
+   * to the buyer, and it let a service order be closed without the work ever
+   * being handed over. A service's only forward move is the delivery in the
+   * chat, so this button stops at "Start preparing" and the chat takes over.
+   */
+  const next = isService
+    ? ["paid", "accepted"].includes(status)
+      ? { to: "processing", label: "Start preparing" }
+      : null
+    : ["paid", "accepted"].includes(status)
       ? { to: "processing", label: "Start preparing" }
       : status === "processing"
         ? fulfilment === "pickup"
@@ -94,7 +107,18 @@ export function AdvanceOrder({
     router.refresh();
   }
 
-  if (!next) return null;
+  if (!next) {
+    // A service that is already being worked on has nothing left to press
+    // here — the delivery is sent from the chat.
+    if (isService && status === "processing") {
+      return (
+        <p className="rounded-xl bg-brand-50 px-3 py-2 text-[11.5px] font-semibold text-brand-800">
+          Deliver this order from the chat with the buyer.
+        </p>
+      );
+    }
+    return null;
+  }
 
   return (
     <div>

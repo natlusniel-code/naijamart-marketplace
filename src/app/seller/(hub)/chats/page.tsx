@@ -32,6 +32,22 @@ export default async function SellerChatsPage() {
   const lastByChat = new Map<string, any>();
   (msgs ?? []).forEach((m: any) => { if (!lastByChat.has(m.chat_id)) lastByChat.set(m.chat_id, m); });
 
+  // One badge per thread, so a seller with several buyers can see which
+  // conversation is waiting on them.
+  const { data: unreadRows } = await supabase.rpc("chat_unread_counts");
+  const unreadByChat = new Map<string, number>(
+    ((unreadRows ?? []) as any[]).map((r) => [r.chat_id, Number(r.unread) || 0]),
+  );
+
+  // Newest activity first. The query orders by chat creation, which put a
+  // thread that was just replied to below one that had been silent for
+  // hours — the list has to follow the last message, not the first.
+  const ordered = (chats ?? []).slice().sort((a: any, b: any) => {
+    const la = lastByChat.get(a.id)?.created_at ?? a.created_at;
+    const lb = lastByChat.get(b.id)?.created_at ?? b.created_at;
+    return new Date(lb).getTime() - new Date(la).getTime();
+  });
+
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <h1 className="text-[21px] font-extrabold tracking-tight text-ink-900">Chats</h1>
@@ -46,9 +62,10 @@ export default async function SellerChatsPage() {
         />
       ) : (
         <div className="nm-card divide-y divide-[var(--line)] overflow-hidden">
-          {chats.map((c: any) => {
+          {ordered.map((c: any) => {
             const p = pmap.get(c.buyer_id);
             const last = lastByChat.get(c.id);
+            const unread = unreadByChat.get(c.id) ?? 0;
             return (
               <Link key={c.id} href={`/seller/chats/${c.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/70">
                 <Avatar name={p?.full_name ?? "Buyer"} src={p?.avatar_url} size={40} />
@@ -65,6 +82,14 @@ export default async function SellerChatsPage() {
                   {last && <p className="text-[10.5px] text-ink-400">{relTime(last.created_at)}</p>}
                   {c.order_id && <Badge tone="blue" className="mt-1">Order</Badge>}
                 </div>
+                {unread > 0 && (
+                  <span
+                    className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-brand-500 px-1.5 text-[10.5px] font-bold text-white"
+                    aria-label={`${unread} unread`}
+                  >
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
               </Link>
             );
           })}
