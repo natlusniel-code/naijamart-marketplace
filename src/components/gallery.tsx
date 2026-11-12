@@ -13,9 +13,15 @@ import { useState } from "react";
  * are required to be horizontal (enforced in the seller form), and the brief
  * is explicit that the buyer must see the image at its original size so it
  * does not lose quality. Cropping a wide photo into a square frame is
- * exactly that quality loss, so a gig uses `natural` mode: the frame takes
- * the image's own aspect ratio, the whole picture is visible, and nothing is
- * upscaled beyond the width it was uploaded at.
+ * exactly that quality loss, so a gig uses `natural` mode.
+ *
+ * ── The upload-size bug ─────────────────────────────────────────────────
+ * `natural` mode used to be `block h-auto w-full`, which still cannot shrink
+ * below an image's intrinsic width inside a flex/grid column: a 2000px upload
+ * widened the document and the whole page scrolled sideways.
+ * `nm-img-fit` (responsive-guards.css) adds `max-width: 100%` and
+ * `object-fit: contain`, so any pixel size is scaled DOWN to the column and
+ * the page never resizes.
  */
 export function Gallery({
   images,
@@ -43,9 +49,9 @@ export function Gallery({
   }
 
   return (
-    <div>
+    <div className="min-w-0 max-w-full">
       <div
-        className={`w-full overflow-hidden rounded-2xl border border-[var(--line)] bg-slate-100 ${
+        className={`w-full max-w-full overflow-hidden rounded-2xl border border-[var(--line)] bg-slate-100 ${
           natural ? "" : "aspect-square md:aspect-[4/3]"
         }`}
       >
@@ -53,11 +59,11 @@ export function Gallery({
         <img
           src={list[active]}
           alt={title}
-          className={natural ? "block h-auto w-full" : "h-full w-full object-cover"}
+          className={natural ? "nm-img-fit" : "h-full w-full object-cover"}
         />
       </div>
       {list.length > 1 && (
-        <div className="nm-scroll mt-2 flex gap-2 overflow-x-auto">
+        <div className="nm-scroll mt-2 flex max-w-full gap-2 overflow-x-auto">
           {list.map((src, i) => (
             <button
               key={i}

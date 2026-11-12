@@ -1,0 +1,41 @@
+/* Responsive guards — "the page must never resize because of an image".
+   A seller can upload a photo of any pixel size; before these rules a wide
+   upload widened the document, the header's icons were pushed off-screen and
+   the browser zoomed out to fit. Imported from app/layout.tsx. */
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+img,
+video,
+canvas,
+svg,
+iframe {
+  max-width: 100%;
+}
+
+/* A flex/grid child defaults to min-width:auto ("never shrink below my
+   content"), which is what pushes a header's right-hand icons off screen. */
+.nm-min0,
+.nm-min0 > * {
+  min-width: 0;
+}
+
+/* Long unbroken strings (URL, email, reference code) must wrap, not widen. */
+.nm-wrap {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Uploaded photos: fit the column, keep the whole picture, never upscale.
+   `height: auto` is deliberately not global — cards crop with
+   `h-full w-full object-cover` and a global auto would break that. */
+.nm-img-fit {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}

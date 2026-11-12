@@ -3,7 +3,10 @@ import { Suspense } from "react";
 import { INSTALL_CAPTURE_SCRIPT } from "@/lib/install-capture";
 import { GlobalLoader } from "@/components/global-loader";
 import { GlobalLoaderTriggers } from "@/components/global-loader-triggers";
+import { NotificationBridge } from "@/components/notification-bridge";
 import "./globals.css";
+// Responsive guards, imported separately so globals.css stays as it was.
+import "./responsive-guards.css";
 
 export const metadata: Metadata = {
   title: {
@@ -12,11 +15,6 @@ export const metadata: Metadata = {
   },
   description:
     "NaijaMart is a Nigerian marketplace for goods and services. We hold your money in escrow until you confirm delivery.",
-  // ── Icons ────────────────────────────────────────────────────────────────
-  // `icon` is the browser-tab favicon; `apple` is what iOS uses when the site
-  // is added to the home screen. Both come from the uploaded NaijaMart mark.
-  // The .ico is listed first so older browsers that only understand ICO still
-  // get a real icon instead of a 404.
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -26,7 +24,6 @@ export const metadata: Metadata = {
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
     shortcut: ["/favicon.ico"],
   },
-  // Next serves src/app/manifest.ts at /manifest.webmanifest and links it here.
   manifest: "/manifest.webmanifest",
   applicationName: "NaijaMart",
   appleWebApp: {
@@ -40,8 +37,6 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  // The installed app draws under the notch; the theme colour matches the
-  // brand green so the status bar blends with the header.
   viewportFit: "cover",
   themeColor: "#0B8A3E",
 };
@@ -75,6 +70,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <GlobalLoaderTriggers />
         </Suspense>
         <GlobalLoader />
+        {/* Registers this device for background push and raises an OS
+            notification for a new row while the tab is open. In the ROOT
+            layout so buyers, sellers and admins all get it. */}
+        <NotificationBridge />
         {children}
       </body>
     </html>
