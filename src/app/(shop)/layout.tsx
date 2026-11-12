@@ -75,7 +75,7 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
   return (
     <div className="min-h-screen bg-[var(--canvas)]">
       {/* top bar */}
-      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white/90 backdrop-blur">
+      <header className="nm-sticky-chrome sticky top-0 z-30 border-b border-[var(--line)] bg-white">
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5">
           <Logo />
           <Link

@@ -68,7 +68,7 @@ export function ListingCard({
         <WishlistButton listingId={l.id} saved={saved} signedIn={signedIn} />
         {/* location badge — always visible so the buyer knows where it ships from */}
         {place && (
-          <span className="absolute bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-[10.5px] font-semibold text-ink-700 shadow-sm backdrop-blur">
+          <span className="absolute bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-[10.5px] font-semibold text-ink-700 shadow-sm">
             <PinIcon className="h-3 w-3 shrink-0 text-brand-600" />
             <span className="truncate">{place}</span>
           </span>

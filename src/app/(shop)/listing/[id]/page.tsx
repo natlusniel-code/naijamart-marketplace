@@ -54,7 +54,10 @@ export default async function ListingPage({ params }: { params: { id: string } }
     <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
       {/* left column */}
       <div className="space-y-4">
-        <Gallery images={l.images ?? []} title={l.title} />
+        {/* A service photo is shown at its own proportions (see Gallery):
+            service photos are horizontal, and cropping one into the square
+            product frame is the quality loss the brief is about. */}
+        <Gallery images={l.images ?? []} title={l.title} natural={isService} />
 
         <div className="lg:hidden">
           <PriceBlock l={l} shop={shop} />
@@ -79,6 +82,38 @@ export default async function ListingPage({ params }: { params: { id: string } }
             </div>
           )}
         </div>
+
+        {/* The plan — Basic / Standard / Premium.
+
+            It sits directly under Description, which is where the layout
+            sketch's arrow points: a buyer reads what the gig is, then
+            immediately what it costs and what each tier includes. It used to
+            live in the right column below the shop card, which buried the
+            price under the provider's details and made the buyer scroll past
+            the reviews to find it. */}
+        {isService && (
+          <GigPackages
+            listingId={l.id}
+            title={l.title}
+            image={l.images?.[0] ?? null}
+            packages={packages}
+            shop={{
+              id: shop.id,
+              slug: shop.slug,
+              name: shop.name,
+              logo_url: shop.logo_url,
+              city: shop.city,
+              state: shop.state,
+            }}
+            signedIn={!!session}
+            canOrderInCity={
+              // An online gig has no coverage area, so a buyer in another
+              // city must still be able to book it (sql/0019).
+              l.service_mode === "online" ||
+              !session?.profile.city || !shop.city || session.profile.city.toLowerCase() === shop.city.toLowerCase()
+            }
+          />
+        )}
 
         {/* delivery block */}
         {!isService && (
@@ -257,30 +292,10 @@ export default async function ListingPage({ params }: { params: { id: string } }
           </div>
         </div>
 
-        {/* buy box / quote box */}
-        {isService ? (
-          <GigPackages
-            listingId={l.id}
-            title={l.title}
-            image={l.images?.[0] ?? null}
-            packages={packages}
-            shop={{
-              id: shop.id,
-              slug: shop.slug,
-              name: shop.name,
-              logo_url: shop.logo_url,
-              city: shop.city,
-              state: shop.state,
-            }}
-            signedIn={!!session}
-            canOrderInCity={
-              // An online gig has no coverage area, so a buyer in another
-              // city must still be able to book it (sql/0019).
-              l.service_mode === "online" ||
-              !session?.profile.city || !shop.city || session.profile.city.toLowerCase() === shop.city.toLowerCase()
-            }
-          />
-        ) : inStock ? (
+        {/* buy box / quote box.
+            A gig's plan now lives in the left column under Description, so
+            the right column carries only the product buy box. */}
+        {!isService && inStock && (
           <div className="hidden lg:block">
             <AddToCartBar
               listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [], type: l.type }}
@@ -293,7 +308,8 @@ export default async function ListingPage({ params }: { params: { id: string } }
               signedIn={!!session}
             />
           </div>
-        ) : (
+        )}
+        {!isService && !inStock && (
           <Alert tone="amber" title="Out of stock">This item is sold out. Chat with the seller to ask when it will be back.</Alert>
         )}
 

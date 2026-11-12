@@ -49,7 +49,7 @@ export function AddToCartBar({
   }
 
   return (
-    <div className="sticky bottom-[62px] z-30 -mx-4 border-t border-[var(--line)] bg-white/95 px-4 py-3 backdrop-blur md:bottom-0 md:mx-0 md:rounded-2xl md:border md:shadow-card">
+    <div className="nm-sticky-chrome sticky bottom-[62px] z-30 -mx-4 border-t border-[var(--line)] bg-white px-4 py-3 md:bottom-0 md:mx-0 md:rounded-2xl md:border md:shadow-card">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1 rounded-xl border border-[var(--line)] px-1">
           <button

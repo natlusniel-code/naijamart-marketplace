@@ -139,7 +139,7 @@ export function WishlistButton({
       aria-pressed={saved}
       aria-label={saved ? "Remove from wishlist" : "Save to wishlist"}
       className={cn(
-        "absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur transition hover:scale-105",
+        "absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-white/95 shadow-sm transition hover:scale-105",
         saved ? "text-red-500" : "text-ink-500 hover:text-red-500",
         className,
       )}

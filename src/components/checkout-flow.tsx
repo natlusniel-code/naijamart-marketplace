@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
-import { readCart, writeCart, clearCart, shopSubtotal, shopDelivery, type Cart } from "@/lib/cart";
+import { readCart, writeCart, clearCart, shopSubtotal, shopDelivery, isServiceOnly, type Cart } from "@/lib/cart";
 import { naira } from "@/lib/utils";
 import { Spinner, Alert, Badge } from "@/components/ui";
 import { SupportLink } from "@/components/support-link";
@@ -58,6 +58,9 @@ export function CheckoutFlow({
 
   const shops = useMemo(() => (cart ? Object.values(cart) : []), [cart]);
   const grand = shops.reduce((n, s) => n + shopSubtotal(s) + shopDelivery(s), 0);
+  // Every shop in the cart is a gig: nothing is shipped, so the delivery
+  // address block is not shown at all.
+  const allServiceOnly = shops.length > 0 && shops.every(isServiceOnly);
 
   // ₦20,000 is the cross-LGA threshold (platform_settings.cross_lga_min_total).
   // The server enforces it in place_order(); this only mirrors the message.
@@ -155,7 +158,8 @@ export function CheckoutFlow({
       return;
     }
     for (const s of shops) {
-      if (s.fulfilment === "delivery" && !addressText) {
+      // A service-only shop needs no address: nothing is being shipped.
+      if (!isServiceOnly(s) && s.fulfilment === "delivery" && !addressText) {
         setErr("Add a delivery address, or switch that shop to pickup.");
         return;
       }
@@ -182,8 +186,11 @@ export function CheckoutFlow({
             // Basic money.
             package_tier: l.packageTier ?? null,
           })),
+          // A service-only shop is recorded as 'delivery' with no address:
+          // place_order already charges no fee when the basket holds no
+          // product, and 'delivery' is the value the order tracker expects.
           p_fulfilment: s.fulfilment,
-          p_address: s.fulfilment === "delivery" ? addressText : null,
+          p_address: isServiceOnly(s) ? null : s.fulfilment === "delivery" ? addressText : null,
           p_note: note || null,
         });
 
@@ -220,7 +227,11 @@ export function CheckoutFlow({
           </Alert>
         )}
 
-        {/* address */}
+        {/* address.
+            Hidden entirely when every shop in the cart is a service: a gig is
+            performed, not shipped, so there is no address to collect and
+            asking for one would be a field that changes nothing. */}
+        {!allServiceOnly && (
         <div className="nm-card p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-[14.5px] font-bold text-ink-900">Delivery address</h2>
@@ -276,11 +287,15 @@ export function CheckoutFlow({
             </div>
           )}
         </div>
+        )}
 
         {/* per-shop orders + payment instructions */}
         {shops.map((s) => {
           const sub = shopSubtotal(s);
           const fee = shopDelivery(s);
+          // A service-only shop is performed, not shipped: no fulfilment
+          // badge, no delivery line, no address.
+          const serviceOnly = isServiceOnly(s);
           // A shop that fails the distance rule must not show bank details:
           // the buyer could transfer money and then be unable to submit.
           const problem = rangeProblem(s);
@@ -288,9 +303,13 @@ export function CheckoutFlow({
             <div key={s.shopId} className="nm-card overflow-hidden">
               <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
                 <p className="text-[13.5px] font-bold text-ink-900">🏪 {s.shopName}</p>
-                <Badge tone={s.fulfilment === "pickup" ? "blue" : "gray"}>
-                  {s.fulfilment === "pickup" ? "Pickup" : "Delivery"}
-                </Badge>
+                {serviceOnly ? (
+                  <Badge tone="blue">Service</Badge>
+                ) : (
+                  <Badge tone={s.fulfilment === "pickup" ? "blue" : "gray"}>
+                    {s.fulfilment === "pickup" ? "Pickup" : "Delivery"}
+                  </Badge>
+                )}
               </div>
 
               <div className="divide-y divide-[var(--line)] px-4">
@@ -306,7 +325,9 @@ export function CheckoutFlow({
 
               <div className="space-y-1 border-t border-[var(--line)] px-4 py-2.5 text-[12.5px]">
                 <div className="flex justify-between"><span className="text-ink-500">Subtotal</span><span className="font-semibold">{naira(sub)}</span></div>
-                <div className="flex justify-between"><span className="text-ink-500">Delivery</span><span className="font-semibold">{fee === 0 ? "Free" : naira(fee)}</span></div>
+                {!serviceOnly && (
+                  <div className="flex justify-between"><span className="text-ink-500">Delivery</span><span className="font-semibold">{fee === 0 ? "Free" : naira(fee)}</span></div>
+                )}
                 <div className="flex justify-between pt-1 text-[14px]"><span className="font-bold text-ink-900">Transfer exactly</span><span className="font-extrabold text-ink-900">{naira(sub + fee)}</span></div>
               </div>
 
@@ -391,7 +412,8 @@ export function CheckoutFlow({
         <div className="nm-card p-4">
           <label className="nm-label" htmlFor="note">Note for the seller (optional)</label>
           <textarea id="note" rows={2} className="nm-input resize-none" value={note}
-            onChange={(e) => setNote(e.target.value)} placeholder="Any delivery instruction…" />
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={allServiceOnly ? "Anything the provider should know about the job…" : "Any delivery instruction…"} />
         </div>
       </div>
 

@@ -19,6 +19,10 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* Anchor links (the "See all →" jumps, the policy contents) glide instead
+     of snapping. This is the only thing that should ever animate a scroll —
+     it does not affect the user's own finger/wheel scrolling. */
+  scroll-behavior: smooth;
 }
 
 body {
@@ -26,6 +30,27 @@ body {
   background: var(--canvas);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
+  /* Stop the mobile rubber-band overscroll. On a long storefront the bounce
+     repaints the whole viewport on every frame at the top and bottom of the
+     page, which is a large part of the "laggy" feel. */
+  overscroll-behavior-y: none;
+}
+
+/* ── Scroll performance ────────────────────────────────────────────────────
+   The sticky header, the bottom tab bar and the sticky buy bar are all
+   `position: sticky/fixed` and sit over scrolling content. Anything that
+   makes the compositor re-blur or re-rasterise them on every frame shows up
+   as jank, so they are painted with a solid background and no backdrop
+   filter (see the components). These two rules finish the job: the sticky
+   chrome gets its own compositing layer up front, and the horizontal
+   scrollers get native momentum instead of a JS-driven scroll. */
+.nm-sticky-chrome {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.nm-scroll {
+  -webkit-overflow-scrolling: touch;
 }
 
 @layer base {
@@ -77,7 +102,6 @@ body {
     display: none;
   }
 }
-
 @keyframes nm-shimmer {
   0% { background-position: -400px 0; }
   100% { background-position: 400px 0; }

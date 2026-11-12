@@ -20,7 +20,7 @@ export const metadata = { title: "NaijaMart admin" };
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-[var(--canvas)]">
-      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white">
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5">
           <Logo />
           <Badge tone="gray" className="hidden sm:inline-flex">

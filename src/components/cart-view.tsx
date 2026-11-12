@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { readCart, writeCart, setQuantity, setFulfilment, removeShop, shopSubtotal, shopDelivery, type Cart, type CartShop } from "@/lib/cart";
+import { readCart, writeCart, setQuantity, setFulfilment, removeShop, shopSubtotal, shopDelivery, isServiceOnly, type Cart, type CartShop } from "@/lib/cart";
 import { naira, discountPercent } from "@/lib/utils";
 import { EmptyState, Alert, Badge } from "@/components/ui";
 
@@ -36,6 +36,9 @@ export function CartView() {
 
   const subtotal = shops.reduce((n, s) => n + shopSubtotal(s), 0);
   const delivery = shops.reduce((n, s) => n + shopDelivery(s), 0);
+  // When the whole cart is gigs there is no delivery line at all — a "Free"
+  // row would imply something is being shipped for nothing.
+  const allServices = shops.length > 0 && shops.every(isServiceOnly);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr] lg:items-start">
@@ -58,10 +61,12 @@ export function CartView() {
             <dt className="text-ink-500">Subtotal</dt>
             <dd className="font-semibold text-ink-900">{naira(subtotal)}</dd>
           </div>
-          <div className="flex justify-between">
-            <dt className="text-ink-500">Delivery</dt>
-            <dd className="font-semibold text-ink-900">{delivery === 0 ? "Free" : naira(delivery)}</dd>
-          </div>
+          {!allServices && (
+            <div className="flex justify-between">
+              <dt className="text-ink-500">Delivery</dt>
+              <dd className="font-semibold text-ink-900">{delivery === 0 ? "Free" : naira(delivery)}</dd>
+            </div>
+          )}
           <div className="flex justify-between border-t border-[var(--line)] pt-2 text-[15px]">
             <dt className="font-bold text-ink-900">Total</dt>
             <dd className="font-extrabold text-ink-900">{naira(subtotal + delivery)}</dd>
@@ -82,6 +87,7 @@ export function CartView() {
 function ShopGroup({ shop }: { shop: CartShop }) {
   const sub = shopSubtotal(shop);
   const fee = shopDelivery(shop);
+  const serviceOnly = isServiceOnly(shop);
   const remaining = shop.freeThreshold != null ? Math.max(0, shop.freeThreshold - sub) : 0;
   const pct = shop.freeThreshold ? Math.min(100, (sub / shop.freeThreshold) * 100) : 0;
 
@@ -137,43 +143,57 @@ function ShopGroup({ shop }: { shop: CartShop }) {
         ))}
       </div>
 
-      {/* fulfilment */}
-      <div className="border-t border-[var(--line)] px-4 py-3">
-        <div className="flex items-center gap-2">
-          {shop.pickupAvailable && (
-            <button
-              onClick={() => setFulfilment(shop.shopId, "pickup")}
-              className={`nm-chip !py-1 ${shop.fulfilment === "pickup" ? "nm-chip-active" : ""}`}
-            >
-              Pickup
-            </button>
-          )}
-          <button
-            onClick={() => setFulfilment(shop.shopId, "delivery")}
-            className={`nm-chip !py-1 ${shop.fulfilment === "delivery" ? "nm-chip-active" : ""}`}
-          >
-            Delivery
-          </button>
-          <span className="ml-auto text-[12px] text-ink-500">
-            {shop.fulfilment === "pickup" ? "Free pickup" : fee === 0 ? "Free delivery" : `Delivery ${naira(fee)}`}
-          </span>
+      {/* fulfilment.
+          A service-only basket has no pickup/delivery choice to make: the
+          provider performs the work, so there is nothing to ship and nothing
+          to collect. Showing the toggle would offer the buyer a decision that
+          cannot change the price or the outcome, so the whole block is
+          replaced with a plain statement of how a gig is fulfilled. */}
+      {serviceOnly ? (
+        <div className="border-t border-[var(--line)] px-4 py-3">
+          <p className="flex items-center gap-2 text-[12px] text-ink-500">
+            <span className="text-brand-600">🛠️</span>
+            Service — the provider does the work. No delivery or pickup, and no delivery fee.
+          </p>
         </div>
-
-        {shop.freeThreshold != null && shop.fulfilment === "delivery" && (
-          <div className="mt-2.5">
-            {remaining > 0 ? (
-              <p className="text-[11.5px] font-medium text-ink-500">
-                Add <strong className="text-brand-700">{naira(remaining)}</strong> more for free delivery
-              </p>
-            ) : (
-              <p className="text-[11.5px] font-semibold text-brand-700">✓ You&apos;ve unlocked free delivery</p>
+      ) : (
+        <div className="border-t border-[var(--line)] px-4 py-3">
+          <div className="flex items-center gap-2">
+            {shop.pickupAvailable && (
+              <button
+                onClick={() => setFulfilment(shop.shopId, "pickup")}
+                className={`nm-chip !py-1 ${shop.fulfilment === "pickup" ? "nm-chip-active" : ""}`}
+              >
+                Pickup
+              </button>
             )}
-            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${pct}%` }} />
-            </div>
+            <button
+              onClick={() => setFulfilment(shop.shopId, "delivery")}
+              className={`nm-chip !py-1 ${shop.fulfilment === "delivery" ? "nm-chip-active" : ""}`}
+            >
+              Delivery
+            </button>
+            <span className="ml-auto text-[12px] text-ink-500">
+              {shop.fulfilment === "pickup" ? "Free pickup" : fee === 0 ? "Free delivery" : `Delivery ${naira(fee)}`}
+            </span>
           </div>
-        )}
-      </div>
+
+          {shop.freeThreshold != null && shop.fulfilment === "delivery" && (
+            <div className="mt-2.5">
+              {remaining > 0 ? (
+                <p className="text-[11.5px] font-medium text-ink-500">
+                  Add <strong className="text-brand-700">{naira(remaining)}</strong> more for free delivery
+                </p>
+              ) : (
+                <p className="text-[11.5px] font-semibold text-brand-700">✓ You&apos;ve unlocked free delivery</p>
+              )}
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-brand-500 transition-[width]" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-between border-t border-[var(--line)] bg-slate-50/60 px-4 py-2.5">
         <span className="text-[12.5px] font-semibold text-ink-600">Shop total</span>

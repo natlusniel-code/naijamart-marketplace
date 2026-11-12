@@ -52,7 +52,7 @@ export function GlobalLoader() {
         "fixed inset-0 z-[9999] flex items-center justify-center",
         // Semi-transparent white + blur: the page stays faintly visible, so
         // the user keeps their bearings instead of staring at a blank screen.
-        "bg-white/70 backdrop-blur-[3px]",
+        "bg-white/80",
         // Fade in fast, fade out over 200ms.
         "transition-opacity duration-200",
         s.fading ? "opacity-0" : "opacity-100",

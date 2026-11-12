@@ -85,7 +85,7 @@ export function TabBar({ cartCount = 0, unread = 0 }: { cartCount?: number; unre
   }, [inChat]);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--line)] bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:sticky md:top-0 md:border-b md:border-t-0">
+    <nav className="nm-sticky-chrome fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--line)] bg-white pb-[env(safe-area-inset-bottom)] md:sticky md:top-0 md:border-b md:border-t-0">
       <div className="mx-auto flex max-w-7xl items-center justify-around md:justify-start md:gap-1 md:px-4">
         {ITEMS.map((it) => {
           const active = it.href === "/" ? path === "/" : path.startsWith(it.href);

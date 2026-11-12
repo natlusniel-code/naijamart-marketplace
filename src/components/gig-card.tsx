@@ -95,7 +95,7 @@ export function GigCard({
             the BOTTOM-left of the image: the top-right belongs to the
             wishlist heart, and the two used to collide. */}
         {isOnline && (
-          <span className="absolute bottom-2 left-2 rounded-full bg-ink-900/80 px-2 py-0.5 text-[10.5px] font-semibold text-white backdrop-blur">
+          <span className="absolute bottom-2 left-2 rounded-full bg-ink-900/80 px-2 py-0.5 text-[10.5px] font-semibold text-white">
             Online
           </span>
         )}

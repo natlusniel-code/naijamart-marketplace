@@ -23,7 +23,7 @@ export function PolicyBody() {
 
   return (
     <div>
-      <div className="sticky top-0 z-10 -mx-4 mb-5 border-b border-[var(--line)] bg-[var(--bg)]/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-0 z-10 -mx-4 mb-5 border-b border-[var(--line)] bg-[var(--bg)] px-4 py-3">
         <label htmlFor="policy-search" className="sr-only">
           Search this policy
         </label>

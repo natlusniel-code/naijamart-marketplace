@@ -6,6 +6,31 @@ import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { Spinner, Alert, Card, Badge } from "@/components/ui";
 import { naira, discountPercent } from "@/lib/utils";
 
+/**
+ * Read a file's real pixel dimensions.
+ *
+ * Used to enforce the horizontal-only rule for service photos. The browser
+ * decodes the image, so this reports the true orientation regardless of the
+ * file name or any EXIF rotation the browser has already applied. Resolves
+ * to null if the file cannot be decoded — in that case the upload is allowed
+ * through rather than blocked on a check we could not run.
+ */
+function readImageSize(file: File): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      resolve(null);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  });
+}
+
 export function ListingForm({
   shopId,
   categories,
@@ -51,8 +76,30 @@ export function ListingForm({
 
   async function pickImage(file: File) {
     if (images.length >= 6) { setErr("Up to 6 photos per listing."); return; }
-    setUploading(true);
     setErr("");
+
+    // A service photo must be HORIZONTAL (landscape).
+    //
+    // The gig card and the gig page show the service picture wide, so a
+    // portrait or square upload would have to be cropped to fit — which is
+    // exactly the quality loss the brief is about. Rather than silently
+    // cropping, the upload is refused and the seller is told what to do.
+    //
+    // Any SIZE is fine; only the orientation matters. The check reads the
+    // real pixel dimensions from the file itself, so renaming a portrait
+    // photo cannot get past it.
+    if (type === "service") {
+      const dims = await readImageSize(file);
+      if (dims && dims.width <= dims.height) {
+        setErr(
+          `Service photos must be horizontal (landscape). That one is ${dims.width}×${dims.height} — ` +
+            `wider than it is tall is what we need. Any size is fine, just turn it sideways or pick another.`,
+        );
+        return;
+      }
+    }
+
+    setUploading(true);
     try {
       const url = await uploadToBucket(file, `listings/${shopId}`);
       setImages((i) => [...i, url]);
@@ -399,10 +446,17 @@ export function ListingForm({
 
           {/* images */}
           <div>
-            <label className="nm-label">Photos ({images.length}/6)</label>
+            <label className="nm-label">
+              {type === "service" ? `Service photos (${images.length}/6)` : `Photos (${images.length}/6)`}
+            </label>
             <div className="flex flex-wrap gap-2">
               {images.map((src, i) => (
-                <div key={src} className="relative h-16 w-16 overflow-hidden rounded-xl bg-slate-100">
+                <div
+                  key={src}
+                  className={`relative overflow-hidden rounded-xl bg-slate-100 ${
+                    type === "service" ? "h-16 w-28" : "h-16 w-16"
+                  }`}
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={src} alt="" className="h-full w-full object-cover" />
                   <button onClick={() => setImages((l) => l.filter((_, k) => k !== i))}
@@ -410,12 +464,22 @@ export function ListingForm({
                 </div>
               ))}
               {images.length < 6 && (
-                <label className="grid h-16 w-16 cursor-pointer place-items-center rounded-xl border border-dashed border-[var(--line)] text-ink-400 hover:border-brand-400 hover:bg-brand-50/40">
+                <label
+                  className={`grid cursor-pointer place-items-center rounded-xl border border-dashed border-[var(--line)] text-ink-400 hover:border-brand-400 hover:bg-brand-50/40 ${
+                    type === "service" ? "h-16 w-28" : "h-16 w-16"
+                  }`}
+                >
                   {uploading ? <Spinner /> : "+"}
                   <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && pickImage(e.target.files[0])} />
                 </label>
               )}
             </div>
+            {type === "service" && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">
+                Service photos must be <strong className="text-ink-600">horizontal (landscape)</strong> — wider
+                than they are tall. Any size is fine; we show it at its own proportions so it never loses quality.
+              </p>
+            )}
           </div>
 
           {type === "product" && (

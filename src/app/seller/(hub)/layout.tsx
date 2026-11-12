@@ -52,7 +52,7 @@ export default async function SellerLayout({ children }: { children: React.React
 
   return (
     <div className="min-h-screen bg-[var(--canvas)]">
-      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5">
           <Logo />
           <Badge tone="blue" className="hidden sm:inline-flex">Seller hub</Badge>

@@ -157,6 +157,22 @@ export function shopSubtotal(shop: CartShop) {
   return shop.lines.reduce((n, l) => n + l.price * l.quantity, 0);
 }
 
+/**
+ * True when every line in this shop's basket is a gig.
+ *
+ * A service-only basket is not shipped and not collected: the provider
+ * performs the work. So it has no delivery fee AND no pickup/delivery
+ * choice to make — the cart and checkout both hide that whole block for
+ * these shops rather than showing a toggle that cannot change anything.
+ *
+ * A MIXED basket (a product and a gig from the same shop) is not
+ * service-only: the goods in it really do travel, so it keeps the normal
+ * fulfilment choice and pays the courier fee.
+ */
+export function isServiceOnly(shop: CartShop) {
+  return shop.lines.length > 0 && shop.lines.every((l) => l.isService);
+}
+
 export function shopDelivery(shop: CartShop) {
   if (shop.fulfilment === "pickup") return 0;
   // A basket of only gigs is performed, not shipped: no courier fee. Mixed
