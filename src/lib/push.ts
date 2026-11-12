@@ -128,3 +128,31 @@ export async function dispatchPush(limit = 50): Promise<DispatchResult> {
 
   return { ok: true, configured: true, claimed: rows.length, sent, failed, pruned, error: lastError };
 }
+
+/* ── Opportunistic dispatch ───────────────────────────────────────────────
+ * Vercel's Hobby plan only permits a daily cron, so a scheduled flush cannot
+ * be relied on. Instead the dispatcher is driven from the pages themselves:
+ * a cheap, throttled call on navigation, plus the explicit /api/jobs/run
+ * endpoint. Both are safe to overlap because `claim_unpushed_notifications`
+ * stamps `pushed_at` as it reads.
+ *
+ * The throttle is per server instance and short (20s), so a navigation storm
+ * costs one indexed query at most, while a new notification still goes out
+ * within a page load rather than waiting for a schedule. */
+let lastRun = 0;
+let inFlight: Promise<DispatchResult> | null = null;
+
+export async function dispatchPushThrottled(windowMs = 20_000): Promise<void> {
+  const now = Date.now();
+  if (now - lastRun < windowMs) return; // recently flushed
+  if (inFlight) return; // a flush is already running on this instance
+  lastRun = now;
+  inFlight = dispatchPush(25).finally(() => {
+    inFlight = null;
+  });
+  try {
+    await inFlight;
+  } catch {
+    // Never let a delivery problem break a page render.
+  }
+}

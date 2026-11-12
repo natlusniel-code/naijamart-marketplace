@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/supabase/server";
 import { createClient } from "@/lib/supabase/server";
 import { isSellerAccount } from "@/lib/roles";
+import { dispatchPushThrottled } from "@/lib/push";
 import { Logo, Avatar } from "@/components/ui";
 import { TabBar } from "@/components/tab-bar";
 import { CartFab } from "@/components/cart-fab";
@@ -44,6 +45,15 @@ function sellerMayView(pathname: string, ownSlug: string | null | undefined): bo
 export default async function ShopLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   const supabase = createClient();
+
+  /* Flush the push queue on any storefront navigation.
+   *
+   * Vercel's Hobby plan only allows a daily cron, so delivery cannot hang off
+   * a schedule. This is fire-and-forget and throttled server-side to once per
+   * 20s per instance, so it costs one indexed query at most; a notification
+   * then reaches the phone within a page view instead of waiting for a timer.
+   * It is not awaited — a delivery problem must never delay a page. */
+  void dispatchPushThrottled();
 
   // ── Sellers do not shop ───────────────────────────────────────────────────
   // The role is the authority (src/lib/roles.ts): an account with role
