@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ensurePushSubscription } from "@/lib/push-subscribe";
 import { notificationPermission, showBrowserNotification } from "@/lib/browser-notify";
+import { notificationTitle, notificationBody, sourceFor } from "@/lib/notification-source";
 
 /**
  * Site-wide notification wiring — mounted once in the ROOT layout, so it
@@ -48,6 +49,7 @@ export function NotificationBridge() {
           (payload) => {
             const row = payload.new as {
               id: string;
+              kind: string;
               title: string;
               body: string | null;
               href: string | null;
@@ -56,11 +58,16 @@ export function NotificationBridge() {
             // The notifications page is where these are read; a popup for a
             // row the user is already looking at is noise.
             if (window.location.pathname.startsWith("/notifications")) return;
+            // Name the source, exactly as the server push does — "Message
+            // from Ada", "Order update — ...", "NaijaMart — ...". Without
+            // this the in-tab popup and the closed-app push would present the
+            // same notification differently.
             void showBrowserNotification({
-              title: row.title,
-              body: row.body,
-              url: row.href ?? "/notifications",
+              title: notificationTitle(row.kind, row.title),
+              body: notificationBody(row.kind, row.body),
+              url: row.href ?? sourceFor(row.kind).href,
               tag: row.id,
+              kind: row.kind,
             });
           },
         )

@@ -384,7 +384,20 @@ export type GigPackage = {
   tier: "basic" | "standard" | "premium";
   name: string;
   description: string | null;
+  /** The list price. A discount does NOT rewrite this. */
   price: number;
+  /**
+   * Optional percentage off, 0–90 (sql/0023). Null means no sale.
+   *
+   * Kept separate from `price` so the gig page can show "was X, now Y" and
+   * the seller can end a sale by clearing one field.
+   */
+  discount_percent: number | null;
+  /**
+   * What the buyer pays — a GENERATED column in the database, so the
+   * storefront and `place_order` can never disagree about the price.
+   */
+  effective_price: number;
   delivery_days: number | null;
   features: string[];
   sort_order: number;
@@ -401,7 +414,9 @@ export async function getGigPackages(listingId: string): Promise<GigPackage[]> {
   const supabase = createClient();
   const { data } = await supabase
     .from("gig_packages")
-    .select("id,listing_id,tier,name,description,price,delivery_days,features,sort_order")
+    .select(
+      "id,listing_id,tier,name,description,price,discount_percent,effective_price,delivery_days,features,sort_order",
+    )
     .eq("listing_id", listingId)
     .order("sort_order");
   return (data ?? []) as unknown as GigPackage[];
@@ -530,7 +545,7 @@ export async function getWishlist(userId: string) {
 
 export type Notification = {
   id: string;
-  kind: "order" | "broadcast" | "system";
+  kind: "order" | "chat" | "broadcast" | "system" | "promo";
   title: string;
   body: string | null;
   href: string | null;

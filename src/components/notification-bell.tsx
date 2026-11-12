@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn, relTime } from "@/lib/utils";
 import { showBrowserNotification, notificationPermission } from "@/lib/browser-notify";
+import { notificationTitle, notificationBody, sourceFor } from "@/lib/notification-source";
 
 type Row = {
   id: string;
@@ -102,11 +103,15 @@ export function NotificationBell({
             // looking at the notifications page — otherwise they get a popup
             // for something they are reading.
             if (!onNotificationsPage && notificationPermission() === "granted") {
+              // Name the source in the title — "Message from Ada", "Order
+              // update — ...", "NaijaMart — ..." — so the OS popup says where
+              // it came from instead of showing a bare subject line.
               void showBrowserNotification({
-                title: row.title,
-                body: row.body,
-                url: row.href ?? "/notifications",
+                title: notificationTitle(row.kind, row.title),
+                body: notificationBody(row.kind, row.body),
+                url: row.href ?? sourceFor(row.kind).href,
                 tag: row.id,
+                kind: row.kind,
               });
             }
           },

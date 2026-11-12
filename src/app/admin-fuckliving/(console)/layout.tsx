@@ -1,6 +1,7 @@
 import { Logo, Badge } from "@/components/ui";
 import { AdminNav } from "@/components/admin/admin-nav";
 import { hasAdminKey } from "@/lib/supabase/admin";
+import { dispatchPushThrottled } from "@/lib/push";
 import Link from "next/link";
 
 /**
@@ -18,6 +19,16 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "NaijaMart admin" };
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  /* Drive the push queue from the console too. The dispatcher used to run only
+   * from the storefront layout, so an admin who lives in the console never
+   * flushed anything — and an admin broadcast is precisely a notification that
+   * needs delivering. Throttled and fire-and-forget; never breaks a page. */
+  try {
+    void dispatchPushThrottled();
+  } catch {
+    // ignore
+  }
+
   return (
     <div className="min-h-screen bg-[var(--canvas)]">
       <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white">

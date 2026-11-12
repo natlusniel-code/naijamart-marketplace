@@ -51,9 +51,17 @@ export default async function ListingPage({ params }: { params: { id: string } }
   const totalReviews = reviews.length || 1;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
+    // `grid-cols-1` is not decoration: it makes the column `minmax(0,1fr)`
+    // instead of `auto`. With an implicit auto column the track is sized to
+    // its content's max-content width, and a replaced element (the gig photo)
+    // still contributes its INTRINSIC width there even though it has
+    // `max-width:100%`. That is how a 588px-wide upload made the single-column
+    // gig page 408px wide inside a 328px column — the page then overflowed and
+    // the browser zoomed out to fit it. `minmax(0,1fr)` removes the floor, and
+    // `min-w-0` on the children stops either column re-introducing it.
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_1fr]">
       {/* left column */}
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         {/* A service photo is shown at its own proportions (see Gallery):
             service photos are horizontal, and cropping one into the square
             product frame is the quality loss the brief is about. */}
@@ -254,7 +262,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
       </div>
 
       {/* right column */}
-      <div className="space-y-4 lg:sticky lg:top-20 lg:self-start">
+      <div className="min-w-0 space-y-4 lg:sticky lg:top-20 lg:self-start">
         <div className="hidden lg:block">
           <PriceBlock l={l} shop={shop} />
         </div>

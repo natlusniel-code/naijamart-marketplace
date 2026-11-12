@@ -77,6 +77,8 @@ export async function showBrowserNotification(payload: {
   body?: string | null;
   url?: string | null;
   tag?: string;
+  /** The notification's source, so the worker can name it if the title is bare. */
+  kind?: string;
 }): Promise<boolean> {
   if (!notificationsSupported() || Notification.permission !== "granted") return false;
 
@@ -85,6 +87,7 @@ export async function showBrowserNotification(payload: {
     body: payload.body ?? "",
     url: payload.url ?? "/notifications",
     tag: payload.tag,
+    kind: payload.kind,
   };
 
   try {
@@ -98,8 +101,11 @@ export async function showBrowserNotification(payload: {
       }
       await reg.showNotification(data.title, {
         body: data.body,
-        icon: "/icon-192.png",
-        data: { url: data.url },
+        // The green cart on transparency — the app tile rendered as a white
+        // square in the notification tray.
+        icon: "/notification-icon-192.png",
+        badge: "/notification-icon-96.png",
+        data: { url: data.url, kind: data.kind },
         tag: data.tag,
       });
       return true;
@@ -109,7 +115,10 @@ export async function showBrowserNotification(payload: {
   }
 
   try {
-    new Notification(data.title, { body: data.body, icon: "/icon-192.png" });
+    new Notification(data.title, {
+      body: data.body,
+      icon: "/notification-icon-192.png",
+    });
     return true;
   } catch {
     return false;

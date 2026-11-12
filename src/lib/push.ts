@@ -3,6 +3,7 @@ import { createAdminClient } from "./supabase/admin";
 import { VAPID_PUBLIC_KEY } from "./push-public";
 import { FALLBACK_VAPID_PRIVATE_KEY, VAPID_SUBJECT_FALLBACK } from "./push-private";
 import { sendPush, type PushTarget } from "./webpush";
+import { notificationTitle, notificationBody, sourceFor } from "./notification-source";
 
 /* Server-side Web Push dispatch.
  *
@@ -101,12 +102,20 @@ export async function dispatchPush(limit = 50): Promise<DispatchResult> {
     const targets = byUser.get(row.user_id) ?? [];
     if (!targets.length) continue; // no device registered — nothing to do
 
+    // The title names WHERE the notification came from — "Message from Ada",
+    // "Order update — ...", "NaijaMart — ..." — instead of showing the raw
+    // row title with no origin. See src/lib/notification-source.ts.
     const payload = {
-      title: row.title,
-      body: row.body ?? "",
-      url: row.href ?? "/notifications",
+      title: notificationTitle(row.kind, row.title),
+      body: notificationBody(row.kind, row.body),
+      url: row.href ?? sourceFor(row.kind).href,
       tag: row.id,
       kind: row.kind,
+      // The green cart on transparency, not the full app tile: a push icon is
+      // drawn on the OS's own background, so a tile would show as a white
+      // square (which is exactly the bug that was reported).
+      icon: "/notification-icon-192.png",
+      badge: "/notification-icon-96.png",
     };
 
     for (const t of targets) {

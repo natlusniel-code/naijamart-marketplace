@@ -49,6 +49,12 @@ export function GigPackages({
   const [added, setAdded] = useState(false);
 
   const pkg = packages[active];
+  // What the buyer actually pays. `effective_price` is a generated column in
+  // the database (sql/0023), so this is the same number `place_order` charges.
+  const pkgPrice = Number(pkg?.effective_price ?? pkg?.price ?? 0);
+  const pkgList = Number(pkg?.price ?? 0);
+  const pkgOff = Number(pkg?.discount_percent ?? 0);
+  const pkgOnSale = pkgOff > 0 && pkgList > pkgPrice;
 
   function book() {
     if (!signedIn) {
@@ -69,8 +75,8 @@ export function GigPackages({
       pickupAvailable: true,
       listingId,
       title: pkg ? `${title} — ${pkg.name}` : title,
-      price: Number(pkg?.price ?? 0),
-      originalPrice: null,
+      price: pkgPrice,
+      originalPrice: pkgOnSale ? pkgList : null,
       image,
       quantity: 1,
       isService: true,
@@ -115,9 +121,21 @@ export function GigPackages({
 
       <div className="p-4">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="text-[22px] font-extrabold tracking-tight text-ink-900">
-            {naira(Number(pkg.price))}
-          </p>
+          <div className="flex flex-wrap items-baseline gap-2">
+            <p className="text-[22px] font-extrabold tracking-tight text-ink-900">
+              {naira(pkgPrice)}
+            </p>
+            {pkgOnSale && (
+              <>
+                <span className="text-[13px] font-medium text-ink-400 line-through">
+                  {naira(pkgList)}
+                </span>
+                <span className="rounded-full bg-red-500 px-2 py-0.5 text-[11px] font-bold text-white">
+                  {Number.isInteger(pkgOff) ? pkgOff : pkgOff.toFixed(1)}% off
+                </span>
+              </>
+            )}
+          </div>
           {pkg.delivery_days != null && (
             <p className="text-[12px] font-semibold text-ink-500">
               {pkg.delivery_days}-day delivery
@@ -155,7 +173,7 @@ export function GigPackages({
           disabled={busy}
           className="nm-btn-primary mt-3 w-full !py-2.5"
         >
-          {busy ? <Spinner /> : added ? "Added ✓" : `Continue — ${naira(Number(pkg.price))}`}
+          {busy ? <Spinner /> : added ? "Added ✓" : `Continue — ${naira(pkgPrice)}`}
         </button>
 
         <p className="mt-2 text-center text-[11px] text-ink-400">

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, createClient } from "@/lib/supabase/server";
+import { dispatchPushThrottled } from "@/lib/push";
 import { sellerGatePath } from "@/lib/seller-gate";
 import { isBuyerAccount } from "@/lib/roles";
 import { Logo, Badge, Avatar } from "@/components/ui";
@@ -13,6 +14,20 @@ export const dynamic = "force-dynamic";
 export default async function SellerLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   if (!session) redirect("/signin?next=%2Fseller");
+
+  /* Flush the push queue.
+   *
+   * This used to live ONLY in the storefront layout, so a seller who works
+   * entirely inside the Seller Hub — or an admin in the console — never drove
+   * the dispatcher, and a notification waiting on the queue sat there until
+   * somebody happened to open a buyer page. Delivery must not depend on which
+   * surface a user happens to be on, so every role's shell drives it now.
+   * Throttled to once per 20s per instance, and never awaited. */
+  try {
+    void dispatchPushThrottled();
+  } catch {
+    // a delivery problem must never break a page
+  }
 
   // ── Buyers never see the Seller Hub ──────────────────────────────────────
   // The hub is seller-only. A buyer account can still own a `shops` row (an

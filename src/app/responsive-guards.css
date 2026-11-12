@@ -11,9 +11,27 @@
       somewhere — including markup added later by someone who never read the
       above. A guard that only covers today's components is not a guard. */
 
+/* ── Scroll must never be locked ────────────────────────────────────────
+   This used to be `overflow-x: hidden` on BOTH html and body. That is the
+   bug behind "the site is not scrolling":
+
+     * `overflow-x: hidden` on <html> makes the viewport a clipped box, so
+       the page can no longer be panned left/right at all — the horizontal
+       scroll the brief asks for was impossible by construction.
+     * On <body> it turns the body into its own scroll container
+       (`overflow-y` computes to `auto`). On touch devices the gesture then
+       targets that inner box, which has no overflow of its own, so the
+       drag is swallowed and the page appears frozen — vertical scrolling
+       died with it.
+
+   The "a wide upload must not widen the page" guarantee does NOT need a
+   global clip any more: every uploaded photo is rendered inside
+   `<ImageFrame>` / `.nm-frame` (fixed aspect, `object-fit: contain`), and
+   the `max-width: 100%` below still caps bare <img>/<video>. So the clip is
+   removed and normal scrolling — up/down AND left/right — is restored on
+   the buyer, seller and admin surfaces alike (they all share this file). */
 html,
 body {
-  overflow-x: hidden;
   max-width: 100%;
 }
 
@@ -29,6 +47,28 @@ iframe {
    content"), which is what pushes a header's right-hand icons off screen. */
 .nm-min0,
 .nm-min0 > * {
+  min-width: 0;
+}
+
+/* ── A grid column must never be sized by the photo inside it ─────────────
+   This is the gig-page zoom bug. A grid with an implicit column
+   (`grid` with no `grid-cols-*`) creates an `auto` track, and an `auto`
+   track is sized to the content's MAX-CONTENT width. A replaced element
+   (an <img>) contributes its INTRINSIC width to that measurement even when
+   it carries `max-width: 100%` — so a 588px-wide gig photo made a single
+   column 408px wide inside a 328px viewport. The document then overflowed
+   and the browser zoomed out to fit the whole page, which is exactly the
+   "the gig picture is bigger than the site" report.
+
+   `minmax(0, 1fr)` removes the floor AND caps the track; `min-width: 0` on
+   the children stops a nested flex/grid re-introducing it. Together they
+   make the COLUMN the authority on width, with the photo fitted inside. */
+.nm-grid-lock {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.nm-grid-lock > * {
   min-width: 0;
 }
 

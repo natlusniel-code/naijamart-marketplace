@@ -10,16 +10,23 @@ import { MarkAllRead } from "@/components/mark-all-read";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Notifications" };
 
-const KIND_TONE: Record<string, "blue" | "violet" | "gray"> = {
+const KIND_TONE: Record<string, "blue" | "violet" | "gray" | "green"> = {
   order: "blue",
+  chat: "green",
   broadcast: "violet",
   system: "gray",
+  promo: "violet",
 };
 
+// The label names WHERE the notification came from, so a buyer can tell a
+// message from a person apart from a NaijaMart announcement at a glance.
+// Mirrors NOTIFICATION_SOURCES in src/lib/notification-source.ts.
 const KIND_LABEL: Record<string, string> = {
-  order: "Order",
-  broadcast: "Announcement",
-  system: "System",
+  order: "Order update",
+  chat: "Message",
+  broadcast: "NaijaMart",
+  system: "NaijaMart",
+  promo: "NaijaMart offer",
 };
 
 export default async function NotificationsPage() {

@@ -39,18 +39,62 @@ self.addEventListener("fetch", () => {
   /* network handles it */
 });
 
+/**
+ * Where a notification came from, and what to call it.
+ *
+ * This mirrors NOTIFICATION_SOURCES in src/lib/notification-source.ts. The
+ * worker cannot import TypeScript, so the table is duplicated here — keep the
+ * two in step. The server normally sends an already-built title; this copy is
+ * the fallback for a bare payload (a push from another source, or an older
+ * server build) so the origin is still named rather than showing a raw string.
+ */
+const SOURCES = {
+  chat: { label: "Message", subtitle: "New message", href: "/chats" },
+  order: { label: "Order update", subtitle: "NaijaMart orders", href: "/orders" },
+  broadcast: { label: "NaijaMart", subtitle: "Announcement", href: "/notifications" },
+  system: { label: "NaijaMart", subtitle: "Account notice", href: "/notifications" },
+  promo: { label: "NaijaMart offer", subtitle: "Deals and discounts", href: "/notifications" },
+};
+
+function sourceFor(kind) {
+  return SOURCES[kind] || SOURCES.system;
+}
+
+function titleFor(kind, rawTitle) {
+  const src = sourceFor(kind);
+  const subject = (rawTitle || "").trim();
+  if (kind === "chat") return subject ? `Message from ${subject}` : "New message";
+  if (subject && subject.toLowerCase().startsWith(src.label.toLowerCase())) return subject;
+  return subject ? `${src.label} — ${subject}` : src.label;
+}
+
+function bodyFor(kind, rawBody) {
+  const src = sourceFor(kind);
+  const detail = (rawBody || "").trim();
+  return detail ? `${src.subtitle} · ${detail}` : src.subtitle;
+}
+
 /** Show a notification, tolerating a payload that is missing fields. */
 function show(payload) {
-  const title = payload.title || "NaijaMart";
+  const kind = payload.kind || "system";
+  const src = sourceFor(kind);
+
+  // A payload that already carries a built title (the normal case, from
+  // src/lib/push.ts) is used as-is; otherwise the source table names it.
+  const title = payload.title || titleFor(kind, payload.subject);
+  const body = payload.body || bodyFor(kind, payload.detail);
+
   const options = {
-    body: payload.body || "",
-    icon: "/icon-192.png",
-    badge: "/icon-192.png",
+    body,
+    // The green cart on a transparent background. The old value was the full
+    // app tile, which the OS drew as a white square — the reported bug.
+    icon: payload.icon || "/notification-icon-192.png",
+    badge: payload.badge || "/notification-icon-96.png",
     // A tag collapses repeats: two "order shipped" pushes for the same order
     // replace each other instead of stacking up.
     tag: payload.tag || undefined,
     renotify: !!payload.tag,
-    data: { url: payload.url || "/notifications" },
+    data: { url: payload.url || src.href, kind },
     vibrate: [80, 40, 80],
   };
   return self.registration.showNotification(title, options);
@@ -62,7 +106,7 @@ self.addEventListener("push", (event) => {
     payload = event.data ? event.data.json() : {};
   } catch {
     // A push with a plain-text body is still worth showing.
-    payload = { title: "NaijaMart", body: event.data ? event.data.text() : "" };
+    payload = { kind: "system", title: "NaijaMart", body: event.data ? event.data.text() : "" };
   }
   event.waitUntil(show(payload));
 });

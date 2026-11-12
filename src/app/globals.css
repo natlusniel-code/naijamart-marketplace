@@ -30,10 +30,11 @@ body {
   background: var(--canvas);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
-  /* Stop the mobile rubber-band overscroll. On a long storefront the bounce
-     repaints the whole viewport on every frame at the top and bottom of the
-     page, which is a large part of the "laggy" feel. */
-  overscroll-behavior-y: none;
+  /* `overscroll-behavior-y: none` used to live here to stop the mobile
+     rubber-band. It was removed with the scroll-lock fix: on iOS it also
+     suppressed the scroll chain, so a drag that started on a non-scrollable
+     child never reached the document and the page felt stuck. The bounce is
+     a cosmetic cost; a page that will not scroll is not. */
 }
 
 /* ── Scroll performance ────────────────────────────────────────────────────
