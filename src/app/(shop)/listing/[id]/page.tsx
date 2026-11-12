@@ -10,6 +10,7 @@ import { ListingCard } from "@/components/cards";
 import { QuoteForm } from "@/components/quote-form";
 import { Gallery } from "@/components/gallery";
 import { WishlistButton } from "@/components/wishlist-button";
+import { ReviewSummary } from "@/components/review-summary";
 import { getWishlistIds } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -89,6 +90,12 @@ export default async function ListingPage({ params }: { params: { id: string } }
           <div className="flex items-center justify-between">
             <h2 className="text-[14px] font-bold text-ink-900">Reviews</h2>
             <Link href={`/shop/${shop.slug}#reviews`} className="text-[12.5px] font-semibold text-brand-600">See all →</Link>
+          </div>
+          {/* Optional summary of what reviewers said. A button, not an
+              automatic render: a shop with 200 reviews should not pay for a
+              summary on every page view. */}
+          <div className="mt-2.5">
+            <ReviewSummary shopId={shop.id} count={Number(shop.rating_count ?? 0)} />
           </div>
           <div className="mt-2.5 flex items-center gap-4">
             <div className="text-center">

@@ -10,6 +10,8 @@ import { CartFab } from "@/components/cart-fab";
 import { SiteFooter } from "@/components/site-footer";
 import { NotificationBell } from "@/components/notification-bell";
 import { InstallAppPrompt } from "@/components/install-app-prompt";
+import { SupportChat } from "@/components/support-chat";
+import { SUPPORT_WHATSAPP } from "@/lib/support";
 
 /**
  * Pages a seller is still allowed to open inside the storefront shell.
@@ -134,6 +136,11 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
           the shopper's navigation. A seller gets the hub's own nav instead, so
           showing it here would offer routes that immediately redirect. */}
       {!isSeller && <TabBar unread={unread} />}
+
+      {/* Support assistant. Answers from the fixed policy document and hands
+          off to WhatsApp when it is unsure — it never invents a policy. Hidden
+          for sellers, who have their own hub. */}
+      {!isSeller && <SupportChat whatsapp={SUPPORT_WHATSAPP} />}
     </div>
   );
 }

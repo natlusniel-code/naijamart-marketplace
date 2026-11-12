@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { Spinner, Alert, Card, Badge } from "@/components/ui";
 import { naira, discountPercent } from "@/lib/utils";
+import { AiListingTools } from "@/components/seller/ai-listing-tools";
 
 export function ListingForm({
   shopId,
@@ -174,6 +175,22 @@ export function ListingForm({
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               placeholder="What you're selling, condition, what's included…" />
           </div>
+
+          {/* Optional writing help. Every suggestion is opt-in: the seller
+              clicks "Use this" or ignores it. Nothing is written to the
+              listing automatically, and the panel degrades to a code-side
+              tidy when the AI is unavailable. */}
+          <AiListingTools
+            title={form.title}
+            description={form.description}
+            specs={form.description}
+            category={categories.find((c) => c.id === form.category_id)?.name}
+            price={form.price ? Number(form.price) : undefined}
+            imageUrl={images[0]}
+            onTitle={(v) => setForm((f) => ({ ...f, title: v }))}
+            onDescription={(v) => setForm((f) => ({ ...f, description: v }))}
+            onTags={(t) => setTags((cur) => Array.from(new Set([...cur, ...t])).slice(0, MAX_TAGS))}
+          />
           <div className="grid grid-cols-2 gap-2.5">
             <div>
               <label className="nm-label">Category</label>

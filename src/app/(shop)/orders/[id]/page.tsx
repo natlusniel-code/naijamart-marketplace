@@ -6,6 +6,7 @@ import { naira, shortDate, ORDER_STATUS, ORDER_STEPS, stepIndexFor, cn } from "@
 import { Badge, Card, Alert } from "@/components/ui";
 import { UploadReceipt, ConfirmDelivery, RaiseIssue, LeaveReview } from "@/components/order-actions";
 import { ChatWithSeller } from "@/components/chat-with-seller";
+import { OrderAssistant } from "@/components/order-assistant";
 import { supportWhatsAppUrl } from "@/lib/support";
 
 export const dynamic = "force-dynamic";
@@ -133,6 +134,21 @@ export default async function OrderDetailPage({ params }: { params: { id: string
 
       {/* right rail */}
       <div className="space-y-4 lg:sticky lg:top-20">
+        {/* Order-status assistant. The order is fetched above under the buyer's
+            own RLS and handed to the AI with the question — the AI never
+            queries the database and is told so. */}
+        {isBuyer && (
+          <div className="nm-card p-4">
+            <p className="text-[13.5px] font-bold text-ink-900">Need help with this order?</p>
+            <p className="mt-0.5 text-[12px] text-ink-500">
+              Ask about the status, payment or delivery.
+            </p>
+            <div className="mt-2">
+              <OrderAssistant orderId={o.id} />
+            </div>
+          </div>
+        )}
+
         {isBuyer && o.status === "pending_payment" && (
           <div className="nm-card p-4">
             <p className="text-[13.5px] font-bold text-ink-900">Payment instructions</p>
