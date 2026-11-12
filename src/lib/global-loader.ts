@@ -9,15 +9,15 @@
  * the single source of truth they all write to, and `GlobalLoader` is the only
  * thing that reads it.
  *
- * ── The two kinds of load ─────────────────────────────────────────────────
+ * ── The two kinds of load ────────────────────────────────────────────────
  * `navigation` — the user clicked a link and a new page is coming. The overlay
  *   blocks input, because a second click would start a second navigation.
  * `data` — a request is in flight but the page is staying put. The overlay is
  *   shown but does NOT block input: locking the whole UI every time a list
  *   refreshes would make the site feel broken.
  *
- * ── Timing ────────────────────────────────────────────────────────────────
- *   * `SHOW_DELAY` — a data request must still be pending after this long
+ * ── Timing ───────────────────────────────────────────────────────────────
+ *   * `DATA_SHOW_DELAY` — a data request must still be pending after this long
  *     before the loader appears. Without it, every 20ms request flashes the
  *     overlay and the site strobes.
  *   * `MIN_VISIBLE` — once shown, the loader stays at least this long, so a
@@ -42,9 +42,45 @@ export type LoaderState = {
 };
 
 export const SHOW_DELAY = 120;
+
+/**
+ * How long a DATA request must stay pending before the overlay appears.
+ *
+ * Deliberately much longer than a navigation's 0ms. A navigation is a
+ * deliberate page change the user is waiting on, so the overlay belongs on
+ * screen immediately. A data request is usually a list refresh, a session
+ * check or a realtime handshake — and the overlay is a full-viewport
+ * semi-transparent layer, so painting it for every one of those is a
+ * full-screen composite each time. That is a real part of the "laggy" feel on
+ * a mid-range phone, and it buys the user nothing: a request that finishes in
+ * 200ms never needed an overlay.
+ *
+ * At 400ms only a genuinely slow request shows it, which is exactly the case
+ * where the user would otherwise think the tap did nothing.
+ */
+export const DATA_SHOW_DELAY = 400;
+
 export const MIN_VISIBLE = 400;
 export const FADE_OUT = 200;
 export const TIMEOUT = 30_000;
+
+/**
+ * How long a navigation may stay pending without the route actually changing.
+ *
+ * This is the anti-wedge guard, and it exists because of a real bug: a click
+ * on a `<button>` nested inside a card `<a>` (the wishlist heart) is cancelled
+ * by React with `preventDefault()`, so no navigation ever happens — but the
+ * click interceptor had already started a navigation load. Nothing stopped
+ * that token, so the overlay stayed up for the rest of the session with
+ * `pointer-events: auto` over the whole viewport, which is why the site
+ * "would not scroll at all".
+ *
+ * The interceptor no longer starts a load for a click on a nested control, but
+ * this watchdog is the belt to that braces: any navigation token that outlives
+ * this window without a route change is dropped, so no future variant of the
+ * same mistake can freeze the page.
+ */
+export const NAV_WATCHDOG = 8_000;
 
 const INITIAL: LoaderState = {
   visible: false,
@@ -72,6 +108,7 @@ let minVisibleUntil = 0;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 let fadeTimer: ReturnType<typeof setTimeout> | null = null;
 let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
 let seq = 0;
 
 function emit(next: Partial<LoaderState>) {
@@ -94,7 +131,34 @@ function clearTimers() {
   if (hideTimer) clearTimeout(hideTimer);
   if (fadeTimer) clearTimeout(fadeTimer);
   if (timeoutTimer) clearTimeout(timeoutTimer);
-  showTimer = hideTimer = fadeTimer = timeoutTimer = null;
+  if (watchdogTimer) clearTimeout(watchdogTimer);
+  showTimer = hideTimer = fadeTimer = timeoutTimer = watchdogTimer = null;
+}
+
+/**
+ * Arm the navigation watchdog.
+ *
+ * If a navigation starts and the route never changes (the click was cancelled,
+ * the target refused, a router call was a no-op), the token would otherwise
+ * sit in `pending` forever. Dropping it here guarantees the overlay cannot
+ * outlive an 8s non-navigation — see NAV_WATCHDOG for the bug this fixes.
+ *
+ * Re-armed on every navigation start, so a genuinely slow page is judged from
+ * its own start rather than from the first click of the session.
+ */
+function armWatchdog() {
+  if (watchdogTimer) clearTimeout(watchdogTimer);
+  watchdogTimer = setTimeout(() => {
+    watchdogTimer = null;
+    let dropped = false;
+    for (const [t, entry] of pending) {
+      if (entry.kind === "navigation") {
+        pending.delete(t);
+        dropped = true;
+      }
+    }
+    if (dropped && pending.size === 0) hide();
+  }, NAV_WATCHDOG);
 }
 
 function showNow(label: string, blocking: boolean) {
@@ -158,6 +222,7 @@ export function startLoading(kind: LoadKind, label = "Loading..."): string {
     for (const [t, entry] of pending) {
       if (entry.kind === "navigation") pending.delete(t);
     }
+    armWatchdog();
   }
 
   pending.set(token, { kind, at: Date.now() });
@@ -171,7 +236,7 @@ export function startLoading(kind: LoadKind, label = "Loading..."): string {
   }
 
   if (showTimer) clearTimeout(showTimer);
-  const delay = kind === "navigation" ? 0 : SHOW_DELAY;
+  const delay = kind === "navigation" ? 0 : DATA_SHOW_DELAY;
   showTimer = setTimeout(() => {
     showTimer = null;
     if (pending.size === 0) return;
@@ -244,6 +309,12 @@ export function stopLoading(token?: string) {
  * kept the overlay up after a fast double click.
  */
 export function stopAllNavigation() {
+  // The route changed, so the watchdog's job is done. Leaving it armed would
+  // let it fire during the NEXT navigation and cut that one short.
+  if (watchdogTimer) {
+    clearTimeout(watchdogTimer);
+    watchdogTimer = null;
+  }
   let removed = false;
   for (const [t, entry] of pending) {
     if (entry.kind === "navigation") {

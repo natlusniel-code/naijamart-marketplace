@@ -46,16 +46,25 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
   const session = await getSession();
   const supabase = createClient();
 
-  /* Flush the push queue on any storefront navigation.
+  /* Flush the push queue opportunistically.
    *
    * Vercel's Hobby plan only allows a daily cron, so delivery cannot hang off
-   * a schedule. This is fire-and-forget and throttled server-side to once per
-   * 20s per instance, so it costs one indexed query at most; a notification
-   * then reaches the phone within a page view instead of waiting for a timer.
-   * It is not awaited — a delivery problem must never delay a page. */
-  void dispatchPushThrottled();
+   * a schedule; this is the driver. It is throttled to once per 20s per
+   * instance, so on a navigation storm it returns immediately without touching
+   * the database.
+   *
+   * NOT awaited — a delivery problem must never delay a page — and wrapped so
+   * a synchronous throw cannot escape into the render either. (`after()` from
+   * Next 15 would be the tidier home for this, but this app is on 14.2.15,
+   * where it does not exist.)
+   */
+  try {
+    void dispatchPushThrottled();
+  } catch {
+    // never break a page because a notification could not be sent
+  }
 
-  // ── Sellers do not shop ───────────────────────────────────────────────────
+  // ── Sellers do not shop ──────────────────────────────────────────────────
   // The role is the authority (src/lib/roles.ts): an account with role
   // 'seller'/'admin', or one that owns a shop. The pathname comes from the
   // `x-pathname` header the middleware sets, because a layout cannot read the

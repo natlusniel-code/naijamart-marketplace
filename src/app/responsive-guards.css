@@ -1,7 +1,16 @@
 /* Responsive guards — "the page must never resize because of an image".
    A seller can upload a photo of any pixel size; before these rules a wide
    upload widened the document, the header's icons were pushed off-screen and
-   the browser zoomed out to fit. Imported from app/layout.tsx. */
+   the browser zoomed out to fit. Imported from app/layout.tsx.
+
+   ── The two-layer strategy ────────────────────────────────────────────────
+   1. Every uploaded photo is rendered inside `<ImageFrame>`
+      (src/components/image-frame.tsx): a fixed-aspect, max-width:100% box with
+      `object-fit: contain`, so the FRAME owns the size and the FILE does not.
+   2. These rules are the safety net for anything that is still a bare <img>
+      somewhere — including markup added later by someone who never read the
+      above. A guard that only covers today's components is not a guard. */
+
 html,
 body {
   overflow-x: hidden;
@@ -29,13 +38,63 @@ iframe {
   word-break: break-word;
 }
 
-/* Uploaded photos: fit the column, keep the whole picture, never upscale.
-   `height: auto` is deliberately not global — cards crop with
-   `h-full w-full object-cover` and a global auto would break that. */
-.nm-img-fit {
+/* ── Fixed-width media frame ───────────────────────────────────────────────
+   `.nm-frame` is the CSS-only equivalent of <ImageFrame> for server-rendered
+   markup: a fixed shape whose height comes from its width, never from the
+   image inside it. `.nm-frame > img` is contained, so the whole picture is
+   visible (no crop, no quality loss) and cannot stretch the frame.
+
+   `--nm-frame-ratio` defaults to 4:3; set it inline to change the shape.
+   `--nm-frame-w` pins a horizontal fixed width, capped by the column — the
+   "custom horizontal size" the brief asks for. */
+.nm-frame {
+  --nm-frame-ratio: 4 / 3;
+  --nm-frame-w: 100%;
+  position: relative;
+  width: var(--nm-frame-w);
+  max-width: 100%;
+  min-width: 0;
+  aspect-ratio: var(--nm-frame-ratio);
+  overflow: hidden;
+  background: #f1f5f9;
+}
+
+.nm-frame > img,
+.nm-frame > video {
   display: block;
   width: 100%;
+  height: 100%;
   max-width: 100%;
-  height: auto;
+  max-height: 100%;
   object-fit: contain;
+}
+
+/* Cards and avatars want the frame FILLED, not letterboxed. */
+.nm-frame--cover > img,
+.nm-frame--cover > video {
+  object-fit: cover;
+}
+
+/* ── Scroll smoothness ─────────────────────────────────────────────────────
+   The sticky header, tab bar and buy bar sit over scrolling content. Giving
+   them their own layer up front stops the compositor re-rasterising them on
+   every frame, which is the difference between a smooth scroll and a janky
+   one on a mid-range phone. */
+.nm-sticky-chrome {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+/* Long lists of cards are the main scroll cost; let the browser skip layout
+   and paint for the ones far off screen. */
+.nm-cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nm-sticky-chrome {
+    will-change: auto;
+  }
 }

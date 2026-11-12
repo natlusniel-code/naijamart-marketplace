@@ -10,18 +10,18 @@ import { subscribeLoader, resetLoader, type LoaderState } from "@/lib/global-loa
  * Rendered once in the root layout, so every route — storefront, seller hub,
  * admin console, auth pages — gets it without any page opting in.
  *
- * ── Design ────────────────────────────────────────────────────────────────
+ * ── Design ───────────────────────────────────────────────────────────────
  * The centre is the NaijaMart app icon (the same artwork as the favicon), with
  * a thin two-tone green ring spinning around it and a soft green glow beneath.
  * Sizes are 88px on desktop and 72px on mobile, with the ring a little larger
  * than the icon. Everything is CSS — no image spinner, no blue.
  *
- * ── Accessibility ─────────────────────────────────────────────────────────
+ * ── Accessibility ────────────────────────────────────────────────────────
  * The overlay is `role="status"` with `aria-live="polite"` and `aria-busy`, so
  * a screen reader announces the loading text once rather than on every frame.
  * The spinner itself is `aria-hidden` — it carries no information.
  *
- * ── Why `pointer-events` is conditional ───────────────────────────────────
+ * ── Why `pointer-events` is conditional ──────────────────────────────────
  * A navigation must block a second click (the brief asks for it, and a double
  * click on "Checkout" would otherwise create two orders). A background data
  * refresh must not: the user should still be able to scroll and tap while a
@@ -50,8 +50,16 @@ export function GlobalLoader() {
         // Highest layer on the site: above the sticky header (z-30), the
         // install toast (z-40) and the mobile tab bar.
         "fixed inset-0 z-[9999] flex items-center justify-center",
-        // Semi-transparent white + blur: the page stays faintly visible, so
-        // the user keeps their bearings instead of staring at a blank screen.
+        // Semi-transparent white: the page stays faintly visible, so the user
+        // keeps their bearings instead of staring at a blank screen.
+        //
+        // Deliberately NOT `backdrop-blur`. A backdrop filter over the whole
+        // viewport forces the compositor to re-blur everything underneath on
+        // every frame the overlay is up — on a mid-range phone that alone is
+        // enough to make the page feel like it has frozen, which is the
+        // opposite of what a loading indicator is for. A flat translucent
+        // white gives the same "the site is busy" signal at a fraction of the
+        // cost.
         "bg-white/80",
         // Fade in fast, fade out over 200ms.
         "transition-opacity duration-200",
@@ -64,8 +72,16 @@ export function GlobalLoader() {
         // thing that MUST be clickable when the load has failed.
         s.blocking || s.failed ? "pointer-events-auto" : "pointer-events-none",
       ].join(" ")}
-      // Prevent the page behind from scrolling while a navigation is blocked.
-      style={s.blocking ? { touchAction: "none" } : undefined}
+      // ── Scroll must never be a casualty of the overlay ───────────────────
+      //
+      // This used to set `touch-action: none` while blocking. A blocking
+      // overlay that stayed mounted (see the wishlist-heart bug) therefore
+      // also killed every touch scroll for the rest of the session — the
+      // "will not scroll at all" report. `touch-action` is now left alone:
+      // the overlay still swallows CLICKS (they land on it, not the link
+      // underneath), while a drag or wheel still chains through to the
+      // document and scrolls the page as normal.
+      style={{ overscrollBehavior: "auto" }}
     >
       <div className="flex flex-col items-center gap-4 px-6 text-center">
         {s.failed ? (

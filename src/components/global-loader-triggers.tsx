@@ -32,7 +32,7 @@ import {
  *   3. **`fetch` patch.** Every request the app makes (Supabase included, it
  *      uses `fetch` under the hood) is counted, so a search, a filter, an
  *      add-to-cart or a list refresh shows the loader too. These are
- *      non-blocking and delayed by `SHOW_DELAY`, so a fast request never
+ *      non-blocking and delayed by `DATA_SHOW_DELAY`, so a fast request never
  *      flashes anything.
  *
  * The load is ended by the `usePathname` / `useSearchParams` effect below:
@@ -69,6 +69,24 @@ export function GlobalLoaderTriggers() {
       const target = e.target as Element | null;
       const anchor = target?.closest?.("a");
       if (!anchor) return;
+
+      // ── A control INSIDE the link is not a navigation ────────────────────
+      //
+      // The product cards wrap a whole card in `<a>` and place the wishlist
+      // heart as a `<button>` inside it. That button's handler calls
+      // `preventDefault()` (and `stopPropagation()`), so clicking the heart
+      // stays on the page. The capture listener below runs BEFORE React's
+      // handler — so it saw a click on an `<a>`, started a navigation load,
+      // and then nothing ever stopped it: the overlay stayed up with
+      // `pointer-events: auto` covering the viewport for the rest of the
+      // session. That is precisely "the site is not scrolling at all".
+      //
+      // A button, input or label inside a link is always its own action, never
+      // the link's destination, so it must not start a navigation load.
+      const nested = target?.closest?.(
+        'button, [role="button"], input, select, textarea, label, summary, [data-no-nav-loader]',
+      );
+      if (nested && anchor.contains(nested)) return;
 
       const href = anchor.getAttribute("href");
       if (!href) return;
@@ -161,36 +179,73 @@ export function GlobalLoaderTriggers() {
   }, []);
 
   // ── Network activity ─────────────────────────────────────────────────────
+  //
+  // Counting every request has a cost: this runs for EVERY fetch the app makes,
+  // and Supabase alone issues several per page (session, the page's own
+  // queries, realtime). The old version built a fresh `Headers` object for each
+  // one just to read a single prefetch flag, and did so before the cheap
+  // same-origin rejection. Both are fixed below, and two classes of request
+  // are excluded outright.
   useEffect(() => {
     const originalFetch = window.fetch.bind(window);
 
+    /**
+     * Requests that are never something the user is waiting on.
+     *
+     * `/api/jobs/run` is the background push flush: it is explicitly
+     * fire-and-forget and can take seconds, so counting it would keep the
+     * overlay up over a page the user is already reading. The Supabase auth
+     * token refresh happens on a timer in the background for the same reason.
+     */
+    function isBackground(raw: string): boolean {
+      if (raw.includes("/api/jobs/run")) return true;
+      if (raw.includes("/auth/v1/token")) return true;
+      if (raw.includes("/auth/v1/logout")) return true;
+      return false;
+    }
+
     window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
-      // Only same-origin requests count. A third-party beacon (analytics, an
-      // image CDN) is not something the user is waiting on.
-      let sameOrigin = true;
+      let raw: string;
       try {
-        const raw =
+        raw =
           typeof input === "string"
             ? input
             : input instanceof URL
               ? input.href
               : input.url;
-        sameOrigin = new URL(raw, window.location.href).origin === window.location.origin;
       } catch {
-        sameOrigin = false;
+        return originalFetch(input as any, init);
       }
 
-      if (!sameOrigin) return originalFetch(input as any, init);
+      // A third-party beacon (analytics, an image CDN) is not a page load.
+      if (!raw.startsWith("/")) {
+        try {
+          if (new URL(raw, window.location.href).origin !== window.location.origin) {
+            return originalFetch(input as any, init);
+          }
+        } catch {
+          return originalFetch(input as any, init);
+        }
+      }
+
+      if (isBackground(raw)) return originalFetch(input as any, init);
 
       // Next prefetches every <Link> it can see, on hover and on viewport
-      // entry. Those requests are speculative — the user has not asked for
-      // that page — so counting them would flash the overlay while someone
-      // merely moves the mouse across the page. `next-router-prefetch` is the
-      // header Next sets on them.
-      const headers = new Headers(
-        init?.headers ?? (input instanceof Request ? input.headers : undefined),
-      );
-      if (headers.get("next-router-prefetch") === "1") {
+      // entry. Those are speculative — the user has not asked for that page —
+      // so counting them would flash the overlay while someone merely moves
+      // the mouse. The header is read in place, with no `Headers` allocation.
+      const h = init?.headers;
+      if (h) {
+        const flag =
+          h instanceof Headers
+            ? h.get("next-router-prefetch")
+            : Array.isArray(h)
+              ? (h.find(([k]) => String(k).toLowerCase() === "next-router-prefetch")?.[1] ?? null)
+              : ((h as Record<string, string>)["next-router-prefetch"] ??
+                (h as Record<string, string>)["Next-Router-Prefetch"] ??
+                null);
+        if (flag === "1") return originalFetch(input as any, init);
+      } else if (input instanceof Request && input.headers.get("next-router-prefetch") === "1") {
         return originalFetch(input as any, init);
       }
 
