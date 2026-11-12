@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { readCart, writeCart, setQuantity, setFulfilment, removeShop, shopSubtotal, shopDelivery, isServiceOnly, type Cart, type CartShop } from "@/lib/cart";
 import { naira, discountPercent } from "@/lib/utils";
 import { EmptyState, Alert, Badge } from "@/components/ui";
+import { StartConversationButton } from "@/components/start-conversation-button";
 
 export function CartView() {
   const [cart, setCart] = useState<Cart | null>(null);
@@ -73,12 +74,33 @@ export function CartView() {
           </div>
         </dl>
 
-        <Link href="/checkout" className="nm-btn-primary mt-4 w-full !py-3">
-          Proceed to checkout
-        </Link>
-        <p className="mt-2 text-center text-[11.5px] leading-relaxed text-ink-400">
-          You pay NaijaMart by bank transfer. We hold it until you confirm delivery.
-        </p>
+        {/* A basket of services cannot be checked out: nothing is shipped and
+            the price is only agreed once the provider answers. The action is
+            therefore a conversation, not a payment — and it carries the plan
+            the buyer picked, so the provider knows what is being asked for.
+            A mixed or goods-only basket keeps the normal checkout. */}
+        {allServices ? (
+          <>
+            <StartConversationButton
+              shop={shops[0]}
+              signedIn
+              className="nm-btn-primary mt-4 w-full !py-3"
+            />
+            <p className="mt-2 text-center text-[11.5px] leading-relaxed text-ink-400">
+              A service is agreed in chat. Send the plan to the provider, they reply with an
+              offer, and you pay only once you accept it.
+            </p>
+          </>
+        ) : (
+          <>
+            <Link href="/checkout" className="nm-btn-primary mt-4 w-full !py-3">
+              Proceed to checkout
+            </Link>
+            <p className="mt-2 text-center text-[11.5px] leading-relaxed text-ink-400">
+              You pay NaijaMart by bank transfer. We hold it until you confirm delivery.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

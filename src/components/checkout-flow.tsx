@@ -104,6 +104,14 @@ export function CheckoutFlow({
    *   total <= ₦20,000 → the buyer's own state AND LGA
    */
   function rangeProblem(shop: (typeof shops)[number]): string | null {
+    // A service is performed, not shipped: there is no delivery to restrict,
+    // so the distance rule does not apply to it at all. This mirrors
+    // place_order (sql/0024), which skips the check for a basket with no
+    // goods. Without this a buyer in Odeda was refused a logo from Ijebu Ode
+    // for being "outside their LGA" — a rule about parcels, applied to a
+    // file sent over chat.
+    if (isServiceOnly(shop)) return null;
+
     const total = shopSubtotal(shop) + shopDelivery(shop);
     const sameState =
       !profileState || !shop.state || shop.state.toLowerCase() === profileState.toLowerCase();
@@ -158,6 +166,15 @@ export function CheckoutFlow({
       return;
     }
     for (const s of shops) {
+      // A service cannot be paid for from the cart. It is agreed in chat and
+      // paid from the seller's offer, so a stale cart line must not become an
+      // order the provider never accepted.
+      if (isServiceOnly(s)) {
+        setErr(
+          `${s.shopName} is a service. Agree it in chat first — the provider sends an offer, you accept it, and you pay from there.`,
+        );
+        return;
+      }
       // A service-only shop needs no address: nothing is being shipped.
       if (!isServiceOnly(s) && s.fulfilment === "delivery" && !addressText) {
         setErr("Add a delivery address, or switch that shop to pickup.");

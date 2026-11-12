@@ -4,7 +4,13 @@ import { ChatThread } from "@/components/chat-thread";
 
 export const dynamic = "force-dynamic";
 
-export default async function ChatPage({ params }: { params: { id: string } }) {
+export default async function ChatPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams?: { draft?: string };
+}) {
   const session = await getSession();
   if (!session) redirect(`/signin?next=%2Fchats%2F${params.id}`);
 
@@ -60,6 +66,7 @@ export default async function ChatPage({ params }: { params: { id: string } }) {
       } : null}
       initialMessages={messages ?? []}
       initialOffers={(offers ?? []) as any}
+      initialDraft={searchParams?.draft ?? ""}
     />
   );
 }

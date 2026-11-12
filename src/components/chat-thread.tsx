@@ -70,6 +70,7 @@ export function ChatThread({
   initialMessages,
   initialOffers,
   basePath = "/chats",
+  initialDraft,
 }: {
   chatId: string;
   meId: string;
@@ -88,11 +89,18 @@ export function ChatThread({
    * to the hub.
    */
   basePath?: string;
+  /**
+   * Text to seed the composer with — the "I want this plan" message built by
+   * `composePlanMessage`. It arrives from the URL, lands in the input box, and
+   * NOTHING is sent: the buyer reads it, edits it if they like, and presses
+   * Send themselves.
+   */
+  initialDraft?: string;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
   const [offers, setOffers] = useState<Offer[]>(initialOffers);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialDraft ?? "");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [offerOpen, setOfferOpen] = useState(false);
@@ -115,6 +123,23 @@ export function ChatThread({
   useEffect(() => {
     scrollDown();
   }, [messages.length, scrollDown]);
+
+  /**
+   * Take the draft out of the address bar once it is in the composer.
+   *
+   * The text has already been read into state, so the parameter has done its
+   * job. Leaving it there would resurrect a message the buyer had deleted or
+   * already sent on every refresh — and would put their whole plan into any
+   * link they copied from the address bar.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("draft")) {
+      url.searchParams.delete("draft");
+      window.history.replaceState({}, "", url.pathname + (url.search || "") + url.hash);
+    }
+  }, []);
 
   /* ------------------------------------------------------------------
    * Realtime.

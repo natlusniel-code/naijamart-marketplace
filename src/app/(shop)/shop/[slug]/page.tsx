@@ -7,8 +7,8 @@ import { getShopBySlug, getShopListings, getShopReviews, getWishlistIds } from "
 import { naira, shortDate } from "@/lib/utils";
 import { Star, VerifiedBadge, Badge, Avatar, EmptyState } from "@/components/ui";
 import { ListingCard } from "@/components/cards";
-import { ChatWithSeller } from "@/components/chat-with-seller";
 import { FollowButton } from "@/components/follow-button";
+import { ChatPill } from "@/components/chat-pill";
 import { ShopSignInPrompt } from "@/components/shop-signin-prompt";
 
 export const dynamic = "force-dynamic";
@@ -148,48 +148,51 @@ export default async function ShopPage({ params }: { params: { slug: string } })
           white ring so it still reads as a distinct mark rather than a floating
           square. */}
       <div className="px-4 pt-3 md:px-4">
-        <div className="flex items-start gap-3">
+        {/* A slim identity strip.
+
+            This used to be a large block: a 20x20 wordmark, the name, the
+            stars, the follower count, a description paragraph, a row of
+            category badges, and a full-width "Chat" button beside "Follow".
+            That block repeated what the banner already says and its button row
+            duplicated the pinned chat bar, while the paragraph pushed the
+            first listing below the fold on a phone.
+
+            What is left is the one line a buyer needs to know WHO they are
+            dealing with — mark, name, trust signals, where they are — plus
+            Follow. Chatting is the pinned pill at the bottom, which stays
+            reachable no matter how far the buyer scrolls. */}
+        <div className="flex items-center gap-3">
           {shop.logo_url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={shop.logo_url} alt={shop.name} className="h-20 w-20 shrink-0 rounded-2xl border-4 border-white bg-white object-cover shadow-card" />
+            <img src={shop.logo_url} alt={shop.name} className="h-14 w-14 shrink-0 rounded-2xl border-2 border-white bg-white object-cover shadow-card" />
           ) : (
-            <span className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border-4 border-white bg-brand-500 text-[24px] font-extrabold text-white shadow-card">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl border-2 border-white bg-brand-500 text-[17px] font-extrabold text-white shadow-card">
               {shop.name.slice(0, 2).toUpperCase()}
             </span>
           )}
-          <div className="min-w-0 flex-1 pt-1">
+
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <h1 className="text-[19px] font-extrabold tracking-tight text-ink-900">{shop.name}</h1>
+              <h1 className="truncate text-[17px] font-extrabold tracking-tight text-ink-900">{shop.name}</h1>
               {shop.verified && <VerifiedBadge />}
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] text-ink-500">
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11.5px] text-ink-500">
               <Star value={Number(shop.rating_avg)} count={shop.rating_count} />
               <span>·</span>
-              <span>{shop.city}, {shop.state}</span>
+              <span className="truncate">{shop.city}, {shop.state}</span>
               <span>·</span>
               <span>{followers ?? 0} followers</span>
             </div>
           </div>
-        </div>
 
-        <div className="mt-3 flex items-center gap-2">
-          <div className="flex-1">
-            <ChatWithSeller shopId={shop.id} signedIn={!!session} label="Chat" className="nm-btn-ghost w-full !py-2.5" />
+          <div className="shrink-0">
+            <FollowButton shopId={shop.id} following={following} signedIn={!!session} />
           </div>
-          <FollowButton shopId={shop.id} following={following} signedIn={!!session} />
         </div>
 
         {shop.description && (
-          <p className="mt-3 text-[13px] leading-relaxed text-ink-600">{shop.description}</p>
+          <p className="mt-2.5 line-clamp-2 text-[12.5px] leading-relaxed text-ink-600">{shop.description}</p>
         )}
-
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {shop.kind !== "services" && <Badge tone="gray">Goods</Badge>}
-          {shop.kind !== "goods" && <Badge tone="blue">Services</Badge>}
-          {shop.category && <Badge tone="gray">{shop.category}</Badge>}
-          {shop.pickup_available && <Badge tone="green">Pickup available</Badge>}
-          <Badge tone="green">Escrow protected</Badge>
-        </div>
       </div>
 
       {/* portfolio */}
@@ -271,6 +274,16 @@ export default async function ShopPage({ params }: { params: { slug: string } })
       </section>
 
       {!session && <ShopSignInPrompt />}
+
+      {/* Clearance for the pinned pill, and the pill itself. Without the
+          padding the last review would sit underneath a fixed element. */}
+      <div className="h-20" aria-hidden="true" />
+      <ChatPill
+        shopId={shop.id}
+        shopName={shop.name}
+        shopLogo={shop.logo_url}
+        signedIn={!!session}
+      />
     </div>
   );
 }

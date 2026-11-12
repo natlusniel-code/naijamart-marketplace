@@ -6,6 +6,7 @@ import { naira, cn, discountPercent } from "@/lib/utils";
 import { Star, VerifiedBadge, Avatar, Badge, Alert } from "@/components/ui";
 import { AddToCartBar } from "@/components/add-to-cart-bar";
 import { ChatWithSeller } from "@/components/chat-with-seller";
+import { ChatPill } from "@/components/chat-pill";
 import { ListingCard } from "@/components/cards";
 import { QuoteForm } from "@/components/quote-form";
 import { GigPackages } from "@/components/gig-packages";
@@ -71,25 +72,17 @@ export default async function ListingPage({ params }: { params: { id: string } }
           <PriceBlock l={l} shop={shop} />
         </div>
 
-        <div className="nm-card p-4">
-          <h2 className="text-[14px] font-bold text-ink-900">Description</h2>
-          <p className="mt-1.5 whitespace-pre-line text-[13.5px] leading-relaxed text-ink-600">
-            {l.description || "The seller hasn't added a description for this listing yet."}
-          </p>
-          {isService && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {l.service_mode === "online" ? (
-                <Badge tone="green">🌐 Online — works anywhere in Nigeria</Badge>
-              ) : (
-                <Badge tone="blue">🏠 Home visit</Badge>
-              )}
-              {l.service_area && <Badge tone="blue">Area: {l.service_area}</Badge>}
-              {l.needs_home_visit && <Badge tone="violet">Provider travels</Badge>}
-              {l.delivery_days != null && <Badge tone="gray">{l.delivery_days}-day delivery</Badge>}
-              <Badge tone="gray">Quote first</Badge>
-            </div>
-          )}
-        </div>
+        {/* A product keeps its own Description card. A gig does NOT: its
+            description is the top half of the plan card below, so the two are
+            one box instead of two cramped ones. See GigPackages. */}
+        {!isService && (
+          <div className="nm-card p-4">
+            <h2 className="text-[14px] font-bold text-ink-900">Description</h2>
+            <p className="mt-1.5 whitespace-pre-line text-[13.5px] leading-relaxed text-ink-600">
+              {l.description || "The seller hasn't added a description for this listing yet."}
+            </p>
+          </div>
+        )}
 
         {/* The plan — Basic / Standard / Premium.
 
@@ -103,7 +96,10 @@ export default async function ListingPage({ params }: { params: { id: string } }
           <GigPackages
             listingId={l.id}
             title={l.title}
-            image={l.images?.[0] ?? null}
+            description={l.description}
+            serviceMode={l.service_mode === "online" ? "online" : "home"}
+            serviceArea={l.service_area}
+            needsHomeVisit={!!l.needs_home_visit}
             packages={packages}
             shop={{
               id: shop.id,
@@ -114,12 +110,6 @@ export default async function ListingPage({ params }: { params: { id: string } }
               state: shop.state,
             }}
             signedIn={!!session}
-            canOrderInCity={
-              // An online gig has no coverage area, so a buyer in another
-              // city must still be able to book it (sql/0019).
-              l.service_mode === "online" ||
-              !session?.profile.city || !shop.city || session.profile.city.toLowerCase() === shop.city.toLowerCase()
-            }
           />
         )}
 
@@ -271,7 +261,12 @@ export default async function ListingPage({ params }: { params: { id: string } }
             breakpoints without duplicating it into the sticky bar */}
         <WishlistButton listingId={l.id} saved={saved} signedIn={!!session} variant="inline" />
 
-        {/* shop card */}
+        {/* shop card.
+            On a gig this is a slim identity strip: the provider's mark, name,
+            rating and location. The "Chat with seller" / "Visit shop" button
+            row that used to live here is gone — chatting is the pinned pill at
+            the bottom of the screen, which is reachable while the buyer reads
+            the plan instead of only after scrolling past every review. */}
         <div className="nm-card p-4">
           <div className="flex items-center gap-3">
             {shop.logo_url ? (
@@ -294,10 +289,15 @@ export default async function ListingPage({ params }: { params: { id: string } }
           </div>
           <p className="mt-2 text-[12px] text-ink-500">{shop.city}, {shop.state}</p>
 
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <ChatWithSeller shopId={shop.id} signedIn={!!session} />
-            <Link href={`/shop/${shop.slug}`} className="nm-btn-ghost w-full">Visit shop</Link>
-          </div>
+          {!isService && (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <ChatWithSeller shopId={shop.id} signedIn={!!session} />
+              <Link href={`/shop/${shop.slug}`} className="nm-btn-ghost w-full">Visit shop</Link>
+            </div>
+          )}
+          {isService && (
+            <Link href={`/shop/${shop.slug}`} className="nm-btn-ghost mt-3 w-full">Visit shop</Link>
+          )}
         </div>
 
         {/* buy box / quote box.
@@ -349,6 +349,21 @@ export default async function ListingPage({ params }: { params: { id: string } }
             {more.filter((m) => m.id !== l.id).slice(0, 4).map((m) => <ListingCard key={m.id} l={m} />)}
           </div>
         </section>
+      )}
+
+      {/* A gig gets the pinned chat pill, plus clearance so the last review is
+          not hidden underneath it. A product does not: its action is the buy
+          bar, which is already pinned. */}
+      {isService && (
+        <>
+          <div className="h-20 lg:col-span-2" aria-hidden="true" />
+          <ChatPill
+            shopId={shop.id}
+            shopName={shop.name}
+            shopLogo={shop.logo_url}
+            signedIn={!!session}
+          />
+        </>
       )}
     </div>
   );
