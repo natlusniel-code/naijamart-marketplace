@@ -214,16 +214,16 @@ export function ChatThread({
   }, []);
 
   /**
-   * The thread reads newest-first, so "the latest message" is the top of the
-   * list — opening a chat lands on it without any scrolling.
+   * The thread reads oldest-first, WhatsApp-style: the newest message sits at
+   * the bottom, right above the composer. Opening a chat lands on it.
    */
-  const scrollTop = useCallback(() => {
-    requestAnimationFrame(() => top.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  const scrollEnd = useCallback(() => {
+    requestAnimationFrame(() => top.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
   }, []);
 
   useEffect(() => {
-    scrollTop();
-  }, [messages.length, scrollTop]);
+    scrollEnd();
+  }, [messages.length, scrollEnd]);
 
   /**
    * Take the draft out of the address bar once it is in the composer.
@@ -266,8 +266,8 @@ export function ChatThread({
             const withoutPending = prev.filter(
               (x) => !(x.pending && x.sender_id === m.sender_id && x.body === m.body && x.image_url === m.image_url),
             );
-            // Newest first: a new message goes on top, not at the bottom.
-            return [m, ...withoutPending];
+            // Oldest first: a new message goes at the bottom, above the composer.
+            return [...withoutPending, m];
           });
         },
       )
@@ -359,7 +359,7 @@ export function ChatThread({
 
     if (result?.message) {
       const saved = result.message;
-      setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [saved, ...prev]));
+      setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
       setText("");
     }
   }
@@ -409,7 +409,7 @@ export function ChatThread({
       setPendingImage(null);
       if (result?.message) {
         const saved = result.message;
-        setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [saved, ...prev]));
+        setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
       }
     } catch (e: any) {
       setErr(e.message ?? "Could not send that image.");

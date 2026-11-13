@@ -2,6 +2,7 @@ import Link from "next/link";
 import { naira, cn, discountPercent } from "@/lib/utils";
 import { Star, VerifiedBadge } from "@/components/ui";
 import { WishlistButton } from "@/components/wishlist-button";
+import { TrackedListingLink } from "@/components/tracked-listing-link";
 import type { Listing, ShopLite } from "@/lib/queries";
 
 /** "Ikeja, Lagos" — the location line every card must show. */
@@ -38,7 +39,8 @@ export function ListingCard({
   const place = placeLabel(l.shops);
   const pct = discountPercent(Number(l.price), l.original_price);
   return (
-    <Link
+    <TrackedListingLink
+      listingId={l.id}
       href={`/listing/${l.id}`}
       className={cn("group overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-card transition hover:-translate-y-0.5 hover:shadow-lift", className)}
     >
@@ -103,7 +105,7 @@ export function ListingCard({
           </p>
         )}
       </div>
-    </Link>
+    </TrackedListingLink>
   );
 }
 

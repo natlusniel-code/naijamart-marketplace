@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getSession } from "@/lib/supabase/server";
+import { getSession, createClient } from "@/lib/supabase/server";
 import { getListing, getShopReviews, getShopListings, getGigPackages, getGigReviews, getReviewableGigOrder } from "@/lib/queries";
 import { naira, cn, discountPercent } from "@/lib/utils";
 import { Star, VerifiedBadge, Avatar, Badge, Alert } from "@/components/ui";
@@ -24,6 +24,23 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
   const shop = l.shops!;
   const isService = l.type === "service";
+
+  /*
+   * Count the view.
+   *
+   * `listings.views` was read by the analytics pages but never written, so
+   * every seller saw 0 views on gigs that had been opened many times. The RPC
+   * skips the seller's own visits — refreshing your own page is not demand.
+   *
+   * Deliberately not awaited: a failed counter must never stop the page from
+   * rendering, and the buyer should not wait on a statistic.
+   */
+  void createClient()
+    .rpc("track_listing_view", {
+      p_listing_id: l.id,
+      p_viewer_id: session?.user.id ?? null,
+    })
+    .then(() => {}, () => {});
 
   const [reviews, more, savedIds, packages, gigReviews, reviewableOrder] = await Promise.all([
     getShopReviews(shop.id, 4),

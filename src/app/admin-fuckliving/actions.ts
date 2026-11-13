@@ -99,9 +99,42 @@ export async function verifyPayment(
       if (pay.type === "order" && pay.order_id) {
         const { data: order } = await supabase
           .from("orders")
-          .select("id,status")
+          .select("id,status,buyer_id,reference,shop_id")
           .eq("id", pay.order_id)
           .maybeSingle();
+
+        /*
+         * A denied receipt has to end the order, not just the payment.
+         *
+         * Before this, the payment flipped to `rejected` and the order stayed
+         * `pending_payment` forever: the buyer's tracking page still showed
+         * "waiting for payment" with an upload button, the seller still saw it
+         * as live, and the admin console kept it in the pending queue. The
+         * three views disagreed about the same order.
+         *
+         * Cancelling here makes all three agree, and the buyer is told why.
+         */
+        if (order && order.status === "pending_payment") {
+          await supabase
+            .from("orders")
+            .update({
+              status: "cancelled",
+              decline_reason: reason!.trim(),
+              payout_status: "held",
+            })
+            .eq("id", order.id);
+
+          if (order.buyer_id) {
+            await supabase.from("notifications").insert({
+              user_id: order.buyer_id,
+              kind: "order" as const,
+              title: "Payment not verified",
+              body: `We could not verify your payment for ${order.reference}. Reason: ${reason!.trim()}. The order has been cancelled — you can place it again with a valid receipt.`,
+              href: `/orders/${order.id}`,
+              order_id: order.id,
+            });
+          }
+        }
 
         if (order?.status === "pending_payment") {
           const { data: items } = await supabase

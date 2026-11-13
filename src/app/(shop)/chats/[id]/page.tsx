@@ -43,13 +43,14 @@ export default async function ChatPage({
       .from("messages")
       .select("id,sender_id,body,image_url,created_at,read_at,delivered_at")
       .eq("chat_id", params.id)
-      // Newest first: the thread reads top-down from the latest message.
-      .order("created_at", { ascending: false }),
+      // Oldest first: the thread reads top-down to the newest message at the
+      // bottom, right above the composer — WhatsApp order.
+      .order("created_at", { ascending: true }),
     supabase
       .from("offers")
       .select("id,price,scope,timeline,status,seller_id,image_url,created_at")
       .eq("chat_id", params.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: true }),
   ]);
 
   return (
