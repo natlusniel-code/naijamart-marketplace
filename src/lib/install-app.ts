@@ -135,6 +135,34 @@ export async function promptInstall(): Promise<
   }
 }
 
+/**
+ * Wait for Chrome to hand us `beforeinstallprompt`.
+ *
+ * The event can fire a moment after the page mounts, so a click that lands
+ * first would otherwise find nothing and fall through to the manual
+ * instructions. Resolves with the event, or `null` if it never arrives
+ * within `ms` (iOS Safari never fires it at all).
+ */
+export function waitForInstallPrompt(ms = 2500): Promise<InstallPromptEvent | null> {
+  if (typeof window === "undefined") return Promise.resolve(null);
+  const existing = getInstallPrompt();
+  if (existing) return Promise.resolve(existing);
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (evt: InstallPromptEvent | null) => {
+      if (done) return;
+      done = true;
+      window.removeEventListener("nm:install-available", onAvailable);
+      clearTimeout(timer);
+      resolve(evt);
+    };
+    const onAvailable = () => finish(getInstallPrompt());
+    const timer = setTimeout(() => finish(getInstallPrompt()), ms);
+    window.addEventListener("nm:install-available", onAvailable);
+  });
+}
+
 function markInstalled(): void {
   try {
     window.localStorage.setItem(INSTALLED_KEY, "1");

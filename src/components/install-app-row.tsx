@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import {
   canInstall,
+  getInstallPrompt,
   isInstalled,
   onInstallStateChange,
   promptInstall,
+  waitForInstallPrompt,
 } from "@/lib/install-app";
 
 /**
@@ -66,6 +68,32 @@ export function InstallAppRow() {
     setShowHelp(true);
   }
 
+  /**
+   * The button must install, not explain.
+   *
+   * Chrome only hands us `beforeinstallprompt` once it has decided the site
+   * qualifies, and it can fire after this component mounted. So a click that
+   * arrives before the event is captured waits for it (a few hundred ms in
+   * practice) and then prompts — instead of falling straight through to the
+   * "here is how to do it yourself" panel, which is what users were seeing.
+   */
+  async function installNow() {
+    if (getInstallPrompt()) {
+      await install();
+      return;
+    }
+    setBusy(true);
+    setNote("");
+    const evt = await waitForInstallPrompt(2500);
+    setBusy(false);
+    if (evt) {
+      await install();
+      return;
+    }
+    // Genuinely unavailable (iOS Safari, or already installed elsewhere).
+    setShowHelp(true);
+  }
+
   // Not yet known, or already installed → render nothing.
   if (installed === null || installed) return null;
 
@@ -79,11 +107,11 @@ export function InstallAppRow() {
           </p>
         </div>
         <button
-          onClick={install}
+          onClick={installNow}
           disabled={busy}
           className="nm-btn-primary shrink-0 !px-3 !py-1.5 !text-[12.5px]"
         >
-          {busy ? "Opening…" : "Install app"}
+          {busy ? "Installing…" : "Install app"}
         </button>
       </div>
 

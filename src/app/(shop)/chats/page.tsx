@@ -24,7 +24,12 @@ export default async function ChatsPage() {
       messages(body,created_at,sender_id)
     `)
     .or(`buyer_id.eq.${uid},seller_id.eq.${uid}`)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    // The embedded messages must be ordered too. Without this the array came
+    // back in whatever order PostgREST chose, so `slice(-1)` picked an
+    // arbitrary message and the list sorted by a stale timestamp — a thread
+    // replied to a minute ago could sit below one silent for hours.
+    .order("created_at", { referencedTable: "messages", ascending: false });
 
   // counterpart names
   const otherIds = Array.from(
