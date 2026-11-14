@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { cn, initials } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ Logo */
 export function Logo({ compact = false, light = false }: { compact?: boolean; light?: boolean }) {
@@ -99,6 +99,47 @@ export function Star({ value, count, className }: { value: number; count?: numbe
 }
 
 /* ------------------------------------------------------------------ Avatar */
+
+/**
+ * The placeholder face for a user who has not uploaded a picture.
+ *
+ * ── Why an icon and not initials ──────────────────────────────────────────
+ * The old fallback printed the first letters of the person's name ("DA" for
+ * "David Adeyemi") on a green disc. Two problems with that: it reads as a
+ * designed avatar rather than a missing one, so nobody realises they can add
+ * a photo; and it leaks the person's name into every screenshot, chat list and
+ * review row. A neutral outline person says "no picture yet" at a glance.
+ *
+ * It is drawn with `stroke` and no `fill`, so it is a line icon rather than a
+ * solid silhouette — the same visual weight as the bell and tab-bar icons
+ * around it.
+ */
+export function PersonIcon({
+  size = 20,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <circle cx="12" cy="8.2" r="3.7" />
+      <path d="M4.5 20.5c.7-3.6 3.8-5.8 7.5-5.8s6.8 2.2 7.5 5.8" />
+    </svg>
+  );
+}
+
 export function Avatar({
   name,
   src,
@@ -123,12 +164,18 @@ export function Avatar({
       />
     );
   }
+  // No picture: a neutral outline person, never the person's initials.
   return (
     <span
-      className={cn("grid place-items-center rounded-full bg-brand-100 font-bold text-brand-700", className)}
-      style={{ width: size, height: size, fontSize: size * 0.38 }}
+      role="img"
+      aria-label={name ? `${name} — no profile photo` : "No profile photo"}
+      className={cn(
+        "grid place-items-center rounded-full bg-slate-100 text-ink-400 ring-1 ring-inset ring-black/5",
+        className,
+      )}
+      style={{ width: size, height: size }}
     >
-      {initials(name)}
+      <PersonIcon size={Math.round(size * 0.58)} />
     </span>
   );
 }

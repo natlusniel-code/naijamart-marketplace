@@ -2,25 +2,29 @@
 
 import { useState } from "react";
 import { BlurredFrame } from "@/components/blurred-frame";
+import { PRODUCT_FRAME_ASPECT, PRODUCT_FRAME_FIT } from "@/lib/image-frame";
 
 /**
  * The listing image gallery.
  *
- * ── One frame, every photo ────────────────────────────────────────
+ * ── One frame, every photo ────────────────────────────────────────────────
  * The frame's width comes from its column and its height from
  * `aspect-ratio`, so a 4000x600 panorama and a 600x4000 portrait both land in
  * exactly the same box. The file's pixel size never influences the layout —
  * that was the original bug, where one wide upload widened the whole document
  * and pushed the sticky header's icons off-screen.
  *
- * ── Service photos ────────────────────────────────────────────────
+ * ── Service photos ────────────────────────────────────────────────────────
  * A gig is shown through `BlurredFrame`: the artwork is never cropped, and
  * the space it does not fill is covered by a blurred copy of itself instead
  * of flat bars or a repeating tile. See that component for why.
  *
- * A product photo stays in the plain frame with `object-cover`: goods are
- * photographed to fill a square, and a blurred surround would be decoration
- * on a thumbnail that is already the right shape.
+ * A product photo stays in the plain frame, but it is fitted with
+ * `object-contain` rather than cropped: the buyer must see the whole photo the
+ * seller uploaded, not a centre crop of it. The frame itself is the SAME
+ * square the seller sees while uploading (see `@/lib/image-frame`), at every
+ * breakpoint — it used to widen to 4:3 from `md` up, which made the buyer's
+ * preview a different shape from the upload tile.
  */
 export function Gallery({
   images,
@@ -35,9 +39,9 @@ export function Gallery({
   const [active, setActive] = useState(0);
   const list = images.length ? images : [];
 
-  const frameRatio = natural
-    ? "aspect-[16/10]"
-    : "aspect-square md:aspect-[4/3]";
+  // A product uses the seller's own upload frame — one square, no breakpoint
+  // variant. A service keeps its wide 16:10 frame (see BlurredFrame).
+  const frameRatio = natural ? "aspect-[16/10]" : PRODUCT_FRAME_ASPECT;
 
   if (!list.length) {
     return (
@@ -68,7 +72,7 @@ export function Gallery({
             alt={title}
             loading="eager"
             decoding="async"
-            className="block h-full w-full max-h-full max-w-full object-cover"
+            className={`block h-full w-full max-h-full max-w-full ${PRODUCT_FRAME_FIT}`}
           />
         </div>
       )}
@@ -90,7 +94,7 @@ export function Gallery({
                 alt=""
                 loading="lazy"
                 decoding="async"
-                className="h-full w-full object-cover"
+                className={`h-full w-full ${PRODUCT_FRAME_FIT}`}
               />
             </button>
           ))}

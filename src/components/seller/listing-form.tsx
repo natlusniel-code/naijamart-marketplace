@@ -6,6 +6,7 @@ import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { Spinner, Alert, Card, Badge } from "@/components/ui";
 import { naira, discountPercent } from "@/lib/utils";
 import { AiListingPanel } from "@/components/seller/ai-listing-panel";
+import { PRODUCT_FRAME_FIT, PRODUCT_TILE_SIZE } from "@/lib/image-frame";
 
 /**
  * Read a file's real pixel dimensions.
@@ -494,11 +495,19 @@ export function ListingForm({
                 <div
                   key={src}
                   className={`relative overflow-hidden rounded-xl bg-slate-100 ${
-                    type === "service" ? "h-16 w-28" : "h-16 w-16"
+                    type === "service" ? "h-16 w-28" : ""
                   }`}
+                  // A product tile is the SAME square the buyer's preview uses
+                  // (see @/lib/image-frame), so what the seller sees here is
+                  // exactly the frame the photo will be shown in.
+                  style={
+                    type === "service"
+                      ? undefined
+                      : { width: PRODUCT_TILE_SIZE, height: PRODUCT_TILE_SIZE }
+                  }
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" className="h-full w-full object-cover" />
+                  <img src={src} alt="" className={`h-full w-full ${PRODUCT_FRAME_FIT}`} />
                   <button onClick={() => setImages((l) => l.filter((_, k) => k !== i))}
                     className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/60 text-[10px] text-white">×</button>
                 </div>
@@ -506,8 +515,13 @@ export function ListingForm({
               {images.length < 6 && (
                 <label
                   className={`grid cursor-pointer place-items-center rounded-xl border border-dashed border-[var(--line)] text-ink-400 hover:border-brand-400 hover:bg-brand-50/40 ${
-                    type === "service" ? "h-16 w-28" : "h-16 w-16"
+                    type === "service" ? "h-16 w-28" : ""
                   }`}
+                  style={
+                    type === "service"
+                      ? undefined
+                      : { width: PRODUCT_TILE_SIZE, height: PRODUCT_TILE_SIZE }
+                  }
                 >
                   {uploading ? <Spinner /> : "+"}
                   <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && pickImage(e.target.files[0])} />
@@ -518,6 +532,12 @@ export function ListingForm({
               <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">
                 Service photos must be <strong className="text-ink-600">horizontal (landscape)</strong> — wider
                 than they are tall. Any size is fine; we show it at its own proportions so it never loses quality.
+              </p>
+            )}
+            {type === "product" && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">
+                This square is the exact frame buyers see on your product page. The whole photo is shown
+                inside it — nothing is cropped — so a square photo fills it best.
               </p>
             )}
           </div>

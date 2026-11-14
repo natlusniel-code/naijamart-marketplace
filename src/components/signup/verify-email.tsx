@@ -59,7 +59,18 @@ export function VerifyEmail({
         if (typeof result.attemptsLeft === "number") setAttemptsLeft(result.attemptsLeft);
         return;
       }
-      router.push(result.next ?? "/");
+      // A buyer goes on to the optional profile-photo step before the
+      // storefront; a seller goes straight into onboarding, where a shop logo
+      // is asked for anyway and a personal photo would be a detour.
+      //
+      // The photo step is skippable, so this never blocks anyone: "Skip for
+      // now" lands on the same `next` the server chose.
+      const destination = result.next ?? "/";
+      if (role === "buyer") {
+        router.push(`/signup/photo?next=${encodeURIComponent(destination)}`);
+      } else {
+        router.push(destination);
+      }
       router.refresh();
     });
   }
