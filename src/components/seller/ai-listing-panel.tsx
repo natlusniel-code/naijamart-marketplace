@@ -10,16 +10,12 @@ import {
   MAX_PHOTOS,
   MIN_DETAILS_CHARS,
   AiListingError,
-  BannerError,
-  bannerImageUrl,
+  bannerPromptsToText,
   copyText,
-  downloadBlob,
-  fetchBannerBlob,
   generateListing,
   listingToText,
   prepareImage,
   regenerateField,
-  renderBanner,
   urlToBase64,
   type GeneratedListing,
   type PreparedImage,
@@ -29,39 +25,21 @@ import {
 /**
  * The "✨ Generate with AI" panel at the top of the listing form.
  *
- * ── The flow the seller sees ──────────────────────────────────────────────
+ * ── The flow the seller sees ───────────────────────────────────────────────
  *  1. Add up to six photos and type what the product is (compulsory).
  *  2. Press "Analyse product" — the photos upload to storage while Gemini
  *     reads them, in parallel, so the upload costs no extra waiting.
  *  3. The listing copy appears in editable fields.
- *  4. Six banner cards fill in one at a time, each with the product text
- *     drawn on it by our own canvas code.
+ *  4. The six banner art-direction prompts appear, and can be copied all at
+ *     once with a single action.
  *
- * ── Why the banner prompts are never rendered ─────────────────────────────
- * The brief is explicit: the six prompts are internal. They live in state,
- * are used to build the image URLs, and are never put in the DOM. The seller
- * sees finished banners, not art direction.
- *
- * ── Why generation is sequential ──────────────────────────────────────────
- * Pollinations rate-limits anonymous callers hard — measured at one image
- * per 45 seconds per IP. Firing six at once returns five 402s. So the cards
- * are filled one at a time, and a 402 is honoured by waiting exactly as long
- * as the service asks before retrying. That is slower but it actually
- * finishes, which six parallel requests do not.
+ * ── Why the banner prompts are shown, not rendered ─────────────────────────
+ * The brief is explicit: Gemini produces the six banner prompts, and the
+ * seller takes them away to render elsewhere. They are shown in a copyable
+ * block — one "Copy all" action copies all six at once.
  */
 
 const DRAFT_VERSION = 2;
-
-type BannerState = {
-  status: "idle" | "queued" | "loading" | "waiting" | "done" | "error";
-  url?: string;
-  blob?: Blob;
-  width?: number;
-  height?: number;
-  error?: string;
-  /** True when the plain text-to-image path was used instead of kontext. */
-  fallback?: boolean;
-};
 
 type Draft = {
   v: number;
@@ -72,15 +50,6 @@ type Draft = {
 
 function draftKey(shopId: string, listingId?: string) {
   return `nm:ai-listing:${shopId}:${listingId ?? "new"}`;
-}
-
-/** Trim the seller's description to a single readable line for a banner. */
-function detailLine(details: string, max = 90): string {
-  const one = details.replace(/\s+/g, " ").trim();
-  if (one.length <= max) return one;
-  const cut = one.slice(0, max);
-  const space = cut.lastIndexOf(" ");
-  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
 export function AiListingPanel({
@@ -105,11 +74,8 @@ export function AiListingPanel({
   const [applied, setApplied] = useState(false);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [banners, setBanners] = useState<Record<string, BannerState>>({});
-  const [bannerRun, setBannerRun] = useState(0);
 
   const abortRef = useRef<AbortController | null>(null);
-  const bannerAbortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const key = useMemo(() => draftKey(shopId, listingId), [shopId, listingId]);
 
@@ -149,7 +115,6 @@ export function AiListingPanel({
   useEffect(
     () => () => {
       abortRef.current?.abort();
-      bannerAbortRef.current?.abort();
     },
     [],
   );
@@ -218,16 +183,15 @@ export function AiListingPanel({
     setApplied(false);
     setBusy(true);
     setSlow(false);
-    setBanners({});
 
     const slowTimer = setTimeout(() => setSlow(true), 20_000);
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Upload and analyse in PARALLEL. The upload is only needed for the
-    // banner step, so making Gemini wait for it would add seconds for
-    // nothing. If the upload fails the listing copy is still useful, so the
-    // failure is reported but does not abort the analysis.
+    // Upload and analyse in PARALLEL. The upload keeps the photos available
+    // for regenerating a field after a refresh. If the upload fails the
+    // listing copy is still useful, so the failure is reported but does not
+    // abort the analysis.
     setUploading(true);
     const uploadPromise = (async () => {
       const urls: string[] = [];
@@ -252,15 +216,6 @@ export function AiListingPanel({
       const urls = await uploadPromise;
       setUploading(false);
       setImageUrls(urls);
-
-      if (urls.length < photos.length) {
-        setNotice(
-          "The listing copy is ready, but some photos could not be uploaded — banners will use the ones that did.",
-        );
-      }
-
-      // Kick off the banners. They fill in one at a time below.
-      void runBanners(listing, urls);
     } catch (e: any) {
       setUploading(false);
       if (e?.name === "AbortError") {
@@ -280,184 +235,6 @@ export function AiListingPanel({
 
   function cancel() {
     abortRef.current?.abort();
-    bannerAbortRef.current?.abort();
-  }
-
-  /* -------------------------------------------------------- banners */
-
-  /**
-   * Fill the six banner cards, one at a time.
-   *
-   * Each card goes: queued → loading → (waiting) → done | error. A 402 from
-   * the service is not a failure — it is an instruction to wait, so the card
-   * shows "Waiting for the image service…" and retries after exactly the
-   * delay the service asked for. Only after three refusals does it give up.
-   */
-  async function runBanners(listing: GeneratedListing, urls: string[]) {
-    bannerAbortRef.current?.abort();
-    const controller = new AbortController();
-    bannerAbortRef.current = controller;
-
-    const initial: Record<string, BannerState> = {};
-    for (const spec of BANNER_SPECS) initial[spec.type] = { status: "queued" };
-    setBanners(initial);
-
-    const referenceUrl = urls[0];
-    const detail = detailLine(details);
-
-    for (const spec of BANNER_SPECS) {
-      if (controller.signal.aborted) return;
-
-      const prompt = listing.bannerPrompts.find((b) => b.type === spec.type)?.prompt;
-      if (!prompt) {
-        setBanners((b) => ({
-          ...b,
-          [spec.type]: { status: "error", error: "No prompt was generated for this banner." },
-        }));
-        continue;
-      }
-
-      setBanners((b) => ({ ...b, [spec.type]: { status: "loading" } }));
-
-      try {
-        const rendered = await generateOneBanner({
-          spec,
-          prompt,
-          referenceUrl,
-          title: listing.title,
-          detail,
-          signal: controller.signal,
-        });
-        setBanners((b) => ({ ...b, [spec.type]: rendered }));
-      } catch (e: any) {
-        if (e?.name === "AbortError") return;
-        setBanners((b) => ({
-          ...b,
-          [spec.type]: {
-            status: "error",
-            error:
-              e instanceof BannerError
-                ? e.code === "rate_limited"
-                  ? "The image service is busy. Try this banner again in a minute."
-                  : "Could not generate this banner."
-                : "Could not generate this banner.",
-          },
-        }));
-      }
-
-      // A short gap between requests. The service allows one image per 45 s,
-      // so this is a courtesy pause, not the real throttle — the 402 handler
-      // above does the actual waiting.
-      if (!controller.signal.aborted) await sleep(1000);
-    }
-  }
-
-  /** One banner: kontext → plain fallback → rate-limit wait → render. */
-  async function generateOneBanner({
-    spec,
-    prompt,
-    referenceUrl,
-    title,
-    detail,
-    signal,
-  }: {
-    spec: (typeof BANNER_SPECS)[number];
-    prompt: string;
-    referenceUrl?: string;
-    title: string;
-    detail: string;
-    signal: AbortSignal;
-  }): Promise<BannerState> {
-    const seed = Math.floor(Math.random() * 1e9);
-    let useKontext = Boolean(referenceUrl);
-    let fallback = false;
-    let attempts = 0;
-
-    while (attempts < 4) {
-      attempts++;
-      const url = bannerImageUrl({
-        prompt,
-        referenceUrl,
-        width: spec.width,
-        height: spec.height,
-        seed,
-        useKontext,
-      });
-
-      try {
-        const blob = await fetchBannerBlob(url, signal);
-        const rendered = await renderBanner({
-          blob,
-          title,
-          detail,
-          isHero: spec.type === "Hero",
-          isStory: spec.type === "Story",
-        });
-        return {
-          status: "done",
-          url: rendered.url,
-          blob: rendered.blob,
-          width: rendered.width,
-          height: rendered.height,
-          fallback,
-        };
-      } catch (e: any) {
-        if (e?.name === "AbortError") throw e;
-
-        // kontext is a paid model on the anonymous API. Drop to plain
-        // text-to-image immediately — it costs nothing to try.
-        if (e instanceof BannerError && e.code === "kontext_unavailable" && useKontext) {
-          useKontext = false;
-          fallback = true;
-          continue;
-        }
-
-        // Rate limited: wait exactly as long as the service asked, then retry.
-        if (e instanceof BannerError && e.code === "rate_limited") {
-          setBanners((b) => ({
-            ...b,
-            [spec.type]: { status: "waiting" },
-          }));
-          await sleep(Math.min(e.retryAfterMs + 1500, 60_000));
-          if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-          continue;
-        }
-
-        throw e;
-      }
-    }
-
-    throw new BannerError("failed", "Could not generate this banner.");
-  }
-
-  /** Rebuild one banner with a new seed. */
-  async function regenerateBanner(type: string) {
-    if (!result) return;
-    const spec = BANNER_SPECS.find((s) => s.type === type);
-    const prompt = result.bannerPrompts.find((b) => b.type === type)?.prompt;
-    if (!spec || !prompt) return;
-
-    setBanners((b) => ({ ...b, [type]: { status: "loading" } }));
-    const controller = new AbortController();
-    bannerAbortRef.current = controller;
-
-    try {
-      const rendered = await generateOneBanner({
-        spec,
-        prompt,
-        referenceUrl: imageUrls[0],
-        title: result.title,
-        detail: detailLine(details),
-        signal: controller.signal,
-      });
-      setBanners((b) => ({ ...b, [type]: rendered }));
-    } catch (e: any) {
-      if (e?.name === "AbortError") return;
-      setBanners((b) => ({
-        ...b,
-        [type]: { status: "error", error: "Could not generate this banner." },
-      }));
-    }
   }
 
   /* ----------------------------------------------------- regenerate */
@@ -513,12 +290,10 @@ export function AiListingPanel({
   }
 
   function discard() {
-    bannerAbortRef.current?.abort();
     setResult(null);
     setPhotos([]);
     setDetails("");
     setImageUrls([]);
-    setBanners({});
     setErr("");
     setNotice("");
     setApplied(false);
@@ -561,7 +336,7 @@ export function AiListingPanel({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-[14px] font-bold text-ink-900">Generate with AI</p>
-          <p className="text-[11.5px] text-ink-500">Photos in, listing and banners out.</p>
+          <p className="text-[11.5px] text-ink-500">Photos in, listing and banner prompts out.</p>
         </div>
         <button
           type="button"
@@ -576,7 +351,7 @@ export function AiListingPanel({
       </div>
 
       <div className="space-y-3 p-4">
-        {/* ── photos ─────────────────────────────────────────────────── */}
+        {/* ── photos ─────────────────────────────────────────────────────── */}
         <div>
           <div className="mb-1.5 flex items-baseline justify-between gap-2">
             <label className="nm-label !mb-0">Product photos</label>
@@ -642,7 +417,7 @@ export function AiListingPanel({
           />
         </div>
 
-        {/* ── details (compulsory) ───────────────────────────────────── */}
+        {/* ── details (compulsory) ───────────────────────────────────────── */}
         <div>
           <label className="nm-label" htmlFor="ai-details">
             Product details <span className="text-red-600">(required)</span>
@@ -672,7 +447,7 @@ export function AiListingPanel({
         {err && <Alert tone="red">{err}</Alert>}
         {notice && !err && <Alert tone="green">{notice}</Alert>}
 
-        {/* ── actions ────────────────────────────────────────────────── */}
+        {/* ── actions ────────────────────────────────────────────────────── */}
         <div className="flex gap-2">
           {busy ? (
             <>
@@ -709,7 +484,7 @@ export function AiListingPanel({
           </p>
         )}
 
-        {/* ── results ────────────────────────────────────────────────── */}
+        {/* ── results ────────────────────────────────────────────────────── */}
         {result && (
           <div className="space-y-3 border-t border-[var(--line)] pt-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -805,37 +580,47 @@ export function AiListingPanel({
               </div>
             </Field>
 
-            {/* ── banners ─────────────────────────────────────────────── */}
+            {/* ── banner prompts ─────────────────────────────────────────── */}
             <div>
               <div className="mb-1.5 flex items-center justify-between gap-2">
-                <label className="nm-label !mb-0">Banners</label>
+                <label className="nm-label !mb-0">Banner prompts</label>
                 <span className="text-[11px] font-semibold text-ink-400">6 designs</span>
               </div>
               <p className="mb-2 text-[11px] leading-relaxed text-ink-400">
-                Each banner is generated from your photos, then your product name is set on it in
-                crisp type. Download saves the finished image.
+                Gemini wrote six art-direction prompts for your banners. Copy them all at once and
+                render them in your image tool of choice.
               </p>
 
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                {BANNER_SPECS.map((spec) => (
-                  <BannerCard
-                    key={spec.type}
-                    spec={spec}
-                    state={banners[spec.type] ?? { status: "queued" }}
-                    onRegenerate={() => regenerateBanner(spec.type)}
-                    onDownload={() => {
-                      const st = banners[spec.type];
-                      if (st?.blob) {
-                        const slug = result.title
-                          .toLowerCase()
-                          .replace(/[^a-z0-9]+/g, "-")
-                          .replace(/^-|-$/g, "")
-                          .slice(0, 40);
-                        downloadBlob(st.blob, `${slug || "banner"}-${spec.type.toLowerCase().replace(/\s+/g, "-")}.png`);
-                      }
-                    }}
-                  />
-                ))}
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyText(bannerPromptsToText(result));
+                  setNotice(ok ? "All six banner prompts copied." : "Could not copy — select the text instead.");
+                }}
+                className="nm-btn-primary mb-2 w-full !py-2.5 !text-[13px]"
+              >
+                Copy all six prompts
+              </button>
+
+              <div className="space-y-2">
+                {BANNER_SPECS.map((spec) => {
+                  const prompt = result.bannerPrompts.find((b) => b.type === spec.type)?.prompt ?? "";
+                  return (
+                    <div key={spec.type} className="rounded-xl border border-[var(--line)] bg-slate-50/60 p-2.5">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-ink-600">
+                          {spec.type}
+                        </span>
+                        <span className="text-[10px] font-semibold tabular-nums text-ink-400">
+                          {spec.width} × {spec.height} · {spec.label}
+                        </span>
+                      </div>
+                      <p className="text-[12px] leading-relaxed text-ink-700">
+                        {prompt || "No prompt was generated for this banner."}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -846,79 +631,6 @@ export function AiListingPanel({
               Fills the title, description and tags below. Nothing is published until you press Publish.
             </p>
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------ BannerCard */
-
-function BannerCard({
-  spec,
-  state,
-  onRegenerate,
-  onDownload,
-}: {
-  spec: (typeof BANNER_SPECS)[number];
-  state: BannerState;
-  onRegenerate: () => void;
-  onDownload: () => void;
-}) {
-  const ratio = `${spec.width} / ${spec.height}`;
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-white">
-      <div className="relative w-full bg-slate-100" style={{ aspectRatio: ratio }}>
-        {state.status === "done" && state.url ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={state.url}
-            alt={`${spec.type} banner`}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center">
-            {(state.status === "loading" || state.status === "waiting") && <Spinner />}
-            <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400">
-              {spec.type}
-            </span>
-            <span className="text-[10.5px] leading-snug text-ink-400">
-              {state.status === "queued" && "Queued…"}
-              {state.status === "loading" && "Generating banner…"}
-              {state.status === "waiting" && "Waiting for the image service…"}
-              {state.status === "error" && (state.error ?? "Could not generate this banner.")}
-              {state.status === "idle" && `${spec.width} × ${spec.height}`}
-            </span>
-          </div>
-        )}
-
-        {state.status === "done" && (
-          <span className="absolute right-1.5 top-1.5 rounded-md bg-black/55 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-            {spec.label}
-          </span>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-1.5 p-2">
-        <span className="mr-auto text-[10.5px] font-semibold text-ink-500">{spec.type}</span>
-        {state.status === "done" ? (
-          <>
-            <button type="button" onClick={onDownload} className="nm-btn-ghost !px-2 !py-1 !text-[11px]">
-              Download
-            </button>
-            <button type="button" onClick={onRegenerate} className="nm-btn-ghost !px-2 !py-1 !text-[11px]">
-              Regenerate
-            </button>
-          </>
-        ) : state.status === "error" ? (
-          <button type="button" onClick={onRegenerate} className="nm-btn-ghost !px-2 !py-1 !text-[11px]">
-            Retry
-          </button>
-        ) : (
-          <span className="text-[10.5px] text-ink-400">
-            {spec.width} × {spec.height}
-          </span>
         )}
       </div>
     </div>
@@ -978,8 +690,4 @@ function Field({
       {children}
     </div>
   );
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }

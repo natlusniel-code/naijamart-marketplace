@@ -14,8 +14,7 @@ export function createClient() {
  * camera roll can hand over `image` with no extension at all, and a file
  * named `.jpg` can actually be a WebP — either would produce a path whose
  * extension lies about the content, which matters because the bucket has an
- * `allowed_mime_types` list and because Pollinations sniffs the type when it
- * fetches the reference image.
+ * `allowed_mime_types` list.
  */
 const EXT_BY_MIME: Record<string, string> = {
   "image/jpeg": "jpg",

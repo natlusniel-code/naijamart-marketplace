@@ -1,24 +1,15 @@
 /**
- * Product Listing Assistant — Gemini text + Pollinations banners + canvas type.
+ * Product Listing Assistant — Gemini text + six banner prompts.
  *
- * ── The pipeline ──────────────────────────────────────────────────────────
+ * ── The pipeline ────────────────────────────────────────────────────────────
  *  1. The seller uploads 1–6 photos and MUST type a description.
  *  2. Every photo goes to the public `naijamart` bucket; public URLs come back.
  *  3. All photos + the typed description go to Gemini, which returns the
  *     listing copy and six banner art-direction prompts.
- *  4. The prompts stay internal — they are never rendered in the UI.
- *  5. Each prompt is sent to Pollinations to render a banner image.
- *  6. The product text is drawn ON TOP of that image with canvas, in our own
- *     code, because image models cannot spell.
+ *  4. The six prompts are shown to the seller and can be copied all at once
+ *     with a single action — they are not rendered into images here.
  *
- * ── Why the text is drawn by us ───────────────────────────────────────────
- * Every image model garbles lettering. Asking for "a banner that says
- * Handmade Rattan Basket" produces plausible-looking nonsense. So the model
- * only ever produces the PICTURE, and the words are set here with real type:
- * a measured, wrapped, shadowed sans-serif over a soft scrim. That is the
- * only way the text is guaranteed correct and crisp.
- *
- * ── Why the key is in two pieces ──────────────────────────────────────────
+ * ── Why the key is in two pieces ───────────────────────────────────────────
  * GitHub's push protection refuses any commit containing a literal Google
  * API key ("GCP API Key Bound to a Service Account"), so a single string
  * constant cannot be pushed to this repo at all. Splitting it keeps the value
@@ -56,7 +47,7 @@ const FALLBACK_MODEL = "gemini-flash-lite-latest";
 /**
  * How long to wait for one Gemini attempt.
  *
- * ── Why the primary gets a SHORT budget ───────────────────────────────────
+ * ── Why the primary gets a SHORT budget ────────────────────────────────────
  * `gemini-flash-latest` does not fail fast when it is overloaded — it accepts
  * the connection and then simply never answers. Measured on a real two-photo
  * upload: the primary sat silent for the full 60 s timeout, and only then did
@@ -104,13 +95,11 @@ export type BannerType =
   | "Story";
 
 /**
- * The six banner slots and the frame each one is rendered in.
+ * The six banner slots and the frame each one is described for.
  *
- * These are the sizes the brief specifies. Pollinations does not always honour
- * the exact pixel count — it caps the long edge — but it DOES honour the
- * aspect ratio, so a 16:9 request comes back 16:9 at a smaller size. The
- * canvas is therefore built at the image's NATIVE size (see `renderBanner`),
- * which keeps the type crisp instead of upscaling a small canvas.
+ * These are the sizes the brief specifies. The prompts are handed to the
+ * seller to render elsewhere, so the width/height here are the art-direction
+ * target each prompt should describe.
  */
 export const BANNER_SPECS: { type: BannerType; width: number; height: number; label: string }[] = [
   { type: "Hero", width: 1200, height: 675, label: "16:9" },
@@ -167,18 +156,6 @@ export class AiListingError extends Error {
   }
 }
 
-/** A banner-render failure, with the wait the service asked for. */
-export class BannerError extends Error {
-  code: "rate_limited" | "kontext_unavailable" | "failed" | "bad_response" | "timeout";
-  retryAfterMs: number;
-  constructor(code: BannerError["code"], message: string, retryAfterMs = 0) {
-    super(message);
-    this.name = "BannerError";
-    this.code = code;
-    this.retryAfterMs = retryAfterMs;
-  }
-}
-
 /* ------------------------------------------------------------------ prompt */
 
 /**
@@ -195,7 +172,7 @@ function buildPrompt(details: string): string {
 {
   "title": "max 60 characters, SEO friendly",
   "shortDescription": "1-2 sentences",
-  "longDescription": "3 short paragraphs separated by \\\\n\\\\n",
+  "longDescription": "3 short paragraphs separated by \\n\\n",
   "tags": ["10-15 lowercase keywords"],
   "bannerPrompts": [
     { "type": "Hero", "prompt": "..." },
@@ -439,7 +416,7 @@ function httpError(status: number, detail: string): AiListingError {
 /**
  * Call the primary model, then the fallback on a timeout, 503 or 429.
  *
- * ── Why 429 IS retried here ───────────────────────────────────────────────
+ * ── Why 429 IS retried here ────────────────────────────────────────────────
  * Quota is per MODEL, not per key. `gemini-flash-latest` can be exhausted
  * while `gemini-flash-lite-latest` still has free quota — measured on this
  * key: the primary answered 429 in 0.6 s while the lite model answered the
@@ -591,7 +568,7 @@ export async function regenerateField({
       : field === "shortDescription"
         ? "a different short description, 1-2 sentences"
         : field === "longDescription"
-          ? "a different long description, 3 short paragraphs separated by \\\\n\\\\n, benefit-led"
+          ? "a different long description, 3 short paragraphs separated by \\n\\n, benefit-led"
           : "a different set of 10-15 lowercase search keywords";
 
   const prompt = `You are an expert ecommerce copywriter. Look at these product photos and the seller's description, then write ${what}.
@@ -643,287 +620,23 @@ Seller's product details: ${details.trim()}`;
   return field === "title" ? text.slice(0, 60) : text;
 }
 
-/* ------------------------------------------------------- banner generation */
+/* ------------------------------------------------------------ banner prompts */
 
 /**
- * Build a Pollinations URL for one banner.
+ * All six banner prompts as one block of text, for a single "Copy all" action.
  *
- * `kontext` takes ONE reference image, so the FIRST uploaded photo is the
- * reference — Gemini saw all of them for accuracy, but the image model only
- * needs one to keep the product recognisable.
- *
- * NOTE: on the anonymous (key-free) API `model=kontext` answers 403
- * FORBIDDEN — it is a paid-tier model. `fetchBannerBlob` detects that and
- * falls back to plain text-to-image, which is what actually renders. The
- * kontext path is kept because it starts working the moment a pollen key is
- * added, with no other change.
+ * Each prompt is prefixed with its slot name so the seller can tell them
+ * apart after pasting. The six slots always appear in the brief's order.
  */
-export function bannerImageUrl({
-  prompt,
-  referenceUrl,
-  width,
-  height,
-  seed,
-  useKontext,
-}: {
-  prompt: string;
-  referenceUrl?: string;
-  width: number;
-  height: number;
-  seed: number;
-  useKontext: boolean;
-}): string {
-  const base = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
-  const params = [`width=${width}`, `height=${height}`, "nologo=true", `seed=${seed}`];
-  if (useKontext && referenceUrl) {
-    params.unshift("model=kontext", `image=${encodeURIComponent(referenceUrl)}`);
-  }
-  return `${base}?${params.join("&")}`;
-}
-
-/**
- * Fetch one banner image, reading the real HTTP status.
- *
- * This uses `fetch` rather than `img.src` on purpose. An `<img>` only fires
- * `onerror` — it cannot tell a 402 rate limit from a 403 forbidden from a
- * 500, and it cannot read the `Retry after 24s` the service sends. With
- * `fetch` we can honour that wait and retry, which is the difference between
- * "banner 2 of 6 failed" and all six arriving.
- *
- * The response is turned into a blob and shown through an object URL, so the
- * image is still displayed in an `<img>` in the DOM — nothing opens a tab.
- */
-export async function fetchBannerBlob(url: string, signal?: AbortSignal): Promise<Blob> {
-  const res = await fetch(url, { signal, cache: "no-store" });
-
-  if (res.ok) {
-    const ct = res.headers.get("content-type") || "";
-    if (!ct.startsWith("image/")) {
-      throw new BannerError("bad_response", "The banner service returned something that is not an image.");
-    }
-    return await res.blob();
-  }
-
-  let body: any = null;
-  try {
-    body = await res.json();
-  } catch {
-    /* non-JSON error body */
-  }
-  const code = body?.error?.code;
-  const msg = String(body?.error?.message ?? "");
-
-  if (res.status === 402 || code === "FREE_LIMIT") {
-    const m = /retry after (\d+)s/i.exec(msg);
-    const wait = m ? parseInt(m[1], 10) : 45;
-    throw new BannerError("rate_limited", msg, wait * 1000);
-  }
-  if (res.status === 403 || code === "FORBIDDEN") {
-    throw new BannerError("kontext_unavailable", msg);
-  }
-  throw new BannerError("failed", msg || `The banner service returned ${res.status}.`);
-}
-
-/** Load a blob into a decoded image, for the canvas. */
-function blobToImage(blob: Blob): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(img);
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new BannerError("bad_response", "That banner could not be decoded."));
-    };
-    img.src = url;
-  });
-}
-
-/* ------------------------------------------------------------ canvas type */
-
-const FONT_STACK = '"Inter", "Helvetica Neue", Arial, sans-serif';
-
-/** Break text into at most `maxLines` lines that fit `maxWidth`. */
-function wrapText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-  maxLines: number,
-): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let line = "";
-
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width <= maxWidth) {
-      line = test;
-      continue;
-    }
-    if (line) lines.push(line);
-    line = word;
-    if (lines.length === maxLines) break;
-  }
-  if (line && lines.length < maxLines) lines.push(line);
-
-  // If we ran out of room, ellipsise the last line rather than clipping a word.
-  if (lines.length === maxLines) {
-    const consumed = lines.join(" ").split(/\s+/).length;
-    if (consumed < words.length) {
-      let last = lines[maxLines - 1];
-      while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth) {
-        last = last.slice(0, -1);
-      }
-      lines[maxLines - 1] = `${last.trimEnd()}…`;
-    }
-  }
-  return lines;
-}
-
-/**
- * Draw the product text onto a banner.
- *
- * The type is set at the banner's NATIVE resolution, so it is sharp at any
- * display size — a 1080px-wide canvas is never scaled up from a 400px one.
- * Sizes are proportional to the width, so the same code reads correctly on a
- * 675px Hero and a 1920px Story.
- *
- * A soft bottom scrim (transparent → 55% black) sits under the text so it
- * stays legible whatever the model painted behind it. No box, no border, no
- * drop shadow on the box — just the image, the scrim and the type.
- */
-export function drawBannerText(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  opts: { title: string; detail: string; isHero: boolean; isStory: boolean },
-) {
-  const pad = Math.round(w * 0.06);
-  const maxWidth = w - pad * 2;
-
-  // ── scrim ──────────────────────────────────────────────────────────────
-  const scrimTop = opts.isStory ? h * 0.5 : h * 0.42;
-  const grad = ctx.createLinearGradient(0, scrimTop, 0, h);
-  grad.addColorStop(0, "rgba(0,0,0,0)");
-  grad.addColorStop(1, "rgba(0,0,0,0.55)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, scrimTop, w, h - scrimTop);
-
-  // ── type sizes ─────────────────────────────────────────────────────────
-  const titleSize = Math.round(w * (opts.isHero ? 0.06 : 0.05));
-  const detailSize = Math.round(w * 0.035);
-  const titleLH = Math.round(titleSize * 1.15);
-  const detailLH = Math.round(detailSize * 1.3);
-
-  ctx.textBaseline = "alphabetic";
-  ctx.textAlign = "left";
-
-  // ── measure ────────────────────────────────────────────────────────────
-  ctx.font = `700 ${titleSize}px ${FONT_STACK}`;
-  const titleLines = wrapText(ctx, opts.title, maxWidth, 2);
-
-  const detail = opts.detail.trim();
-  ctx.font = `400 ${detailSize}px ${FONT_STACK}`;
-  const detailLines = detail ? wrapText(ctx, detail, maxWidth, 2) : [];
-
-  const blockH =
-    titleLines.length * titleLH +
-    (detailLines.length
-      ? Math.round(detailSize * 0.5) + detailLines.length * detailLH
-      : 0);
-
-  // Bottom-anchored. On a Story frame that lands in the lower third, which is
-  // where the eye goes and where the platform's own UI does not cover it.
-  let y = h - pad - blockH + titleLH;
-
-  // ── title ──────────────────────────────────────────────────────────────
-  ctx.font = `700 ${titleSize}px ${FONT_STACK}`;
-  ctx.fillStyle = "#ffffff";
-  ctx.shadowColor = "rgba(0,0,0,0.5)";
-  ctx.shadowBlur = Math.round(titleSize * 0.18);
-  ctx.shadowOffsetY = Math.round(titleSize * 0.04);
-  for (const line of titleLines) {
-    ctx.fillText(line, pad, y);
-    y += titleLH;
-  }
-
-  // ── detail ─────────────────────────────────────────────────────────────
-  if (detailLines.length) {
-    y += Math.round(detailSize * 0.5) - titleLH + detailLH;
-    ctx.font = `400 ${detailSize}px ${FONT_STACK}`;
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.shadowBlur = Math.round(detailSize * 0.2);
-    for (const line of detailLines) {
-      ctx.fillText(line, pad, y);
-      y += detailLH;
-    }
-  }
-
-  ctx.shadowColor = "transparent";
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-}
-
-/**
- * Render one banner: image + drawn text → a PNG blob.
- *
- * The canvas is created at the IMAGE's native size, not the requested size.
- * Pollinations caps the long edge (a 1000×1000 request comes back 768×768),
- * so building a 1000px canvas and stretching a 768px image into it would
- * blur the photo. Native size keeps both the photo and the type crisp.
- */
-export async function renderBanner({
-  blob,
-  title,
-  detail,
-  isHero,
-  isStory,
-}: {
-  blob: Blob;
-  title: string;
-  detail: string;
-  isHero: boolean;
-  isStory: boolean;
-}): Promise<{ blob: Blob; url: string; width: number; height: number }> {
-  const img = await blobToImage(blob);
-  const w = img.naturalWidth || img.width;
-  const h = img.naturalHeight || img.height;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new BannerError("failed", "This browser could not draw the banner.");
-
-  ctx.drawImage(img, 0, 0, w, h);
-  drawBannerText(ctx, w, h, { title, detail, isHero, isStory });
-
-  const out = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob((b) => resolve(b), "image/png"),
-  );
-  if (!out) throw new BannerError("failed", "This browser could not save the banner.");
-
-  return { blob: out, url: URL.createObjectURL(out), width: w, height: h };
-}
-
-/** Save a blob to the user's device. */
-export function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  // Give the browser a moment to start the download before revoking.
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+export function bannerPromptsToText(l: GeneratedListing): string {
+  return l.bannerPrompts
+    .map((b) => `${b.type}\n${b.prompt}`)
+    .join("\n\n");
 }
 
 /* ------------------------------------------------------------------ misc */
 
-/** The whole listing as plain text, for "Copy all". Banner prompts stay internal. */
+/** The whole listing as plain text, for "Copy all". */
 export function listingToText(l: GeneratedListing): string {
   return [
     `TITLE\n${l.title}`,
