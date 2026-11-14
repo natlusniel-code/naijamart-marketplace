@@ -11,6 +11,14 @@ export type CartShop = {
   deliveryFee: number;
   freeThreshold: number | null;
   pickupAvailable: boolean;
+  /**
+   * Where a buyer collects from (sql/0034). Both optional: a shop with an
+   * address but no pin still gets a working "Directions" link, because
+   * Google geocodes the text.
+   */
+  pickupAddress?: string | null;
+  pickupLat?: number | null;
+  pickupLng?: number | null;
   fulfilment: "delivery" | "pickup";
   lines: {
     listingId: string;
@@ -34,6 +42,12 @@ export type CartShop = {
      * re-price it server-side rather than trusting the client.
      */
     packageTier?: "basic" | "standard" | "premium" | null;
+    /**
+     * The seller's fulfilment choice for this listing (sql/0034):
+     * 'both', 'pickup' or 'delivery'. Optional so carts saved before this
+     * field existed still parse — an absent value is treated as 'both'.
+     */
+    fulfilmentMode?: "both" | "pickup" | "delivery";
   }[];
 };
 
@@ -67,6 +81,9 @@ export function addToCart(item: {
   deliveryFee?: number;
   freeThreshold?: number | null;
   pickupAvailable?: boolean;
+  pickupAddress?: string | null;
+  pickupLat?: number | null;
+  pickupLng?: number | null;
   listingId: string;
   title: string;
   price: number;
@@ -77,6 +94,8 @@ export function addToCart(item: {
   isService?: boolean;
   /** The chosen package tier for a gig (sql/0021). */
   packageTier?: "basic" | "standard" | "premium" | null;
+  /** The seller's fulfilment choice for this listing (sql/0034). */
+  fulfilmentMode?: "both" | "pickup" | "delivery";
 }) {
   const cart = readCart();
   const shop =
@@ -91,6 +110,9 @@ export function addToCart(item: {
       deliveryFee: item.deliveryFee ?? 0,
       freeThreshold: item.freeThreshold ?? null,
       pickupAvailable: item.pickupAvailable ?? true,
+      pickupAddress: item.pickupAddress ?? null,
+      pickupLat: item.pickupLat ?? null,
+      pickupLng: item.pickupLng ?? null,
       fulfilment: "delivery",
       lines: [],
     });
@@ -113,7 +135,16 @@ export function addToCart(item: {
       image: item.image ?? null,
       isService: item.isService ?? false,
       packageTier: item.packageTier ?? null,
+      fulfilmentMode: item.fulfilmentMode ?? "both",
     });
+
+  // A shop that only allows pickup must not keep a stale 'delivery' choice
+  // in the saved cart: the buyer would reach checkout with a mode the
+  // server will refuse. Same the other way round.
+  const allows = allowedFulfilments(shop);
+  if (!allows.includes(shop.fulfilment)) {
+    shop.fulfilment = allows[0] ?? "delivery";
+  }
 
   writeCart(cart);
 }
@@ -133,10 +164,14 @@ export function setQuantity(shopId: string, listingId: string, quantity: number)
 
 export function setFulfilment(shopId: string, fulfilment: "delivery" | "pickup") {
   const cart = readCart();
-  if (cart[shopId]) {
-    cart[shopId].fulfilment = fulfilment;
-    writeCart(cart);
-  }
+  const shop = cart[shopId];
+  if (!shop) return;
+  // Silently ignoring a mode the seller does not offer would leave the
+  // radio looking unresponsive; the callers only render modes this allows,
+  // so this guard is for a stale cart, not for the UI.
+  if (!allowedFulfilments(shop).includes(fulfilment)) return;
+  shop.fulfilment = fulfilment;
+  writeCart(cart);
 }
 
 export function removeShop(shopId: string) {
@@ -171,6 +206,48 @@ export function shopSubtotal(shop: CartShop) {
  */
 export function isServiceOnly(shop: CartShop) {
   return shop.lines.length > 0 && shop.lines.every((l) => l.isService);
+}
+
+/**
+ * Which fulfilment modes the lines in this shop actually allow.
+ *
+ * A shop's basket can hold two products from the same seller where one is
+ * "pickup only" and the other is "delivery only". Neither mode can serve
+ * both, so the result is empty and checkout refuses the basket with a
+ * message naming the conflict — which is the honest answer: the buyer has
+ * to split the order or drop a line.
+ *
+ * An absent `fulfilmentMode` (a cart saved before sql/0034) counts as
+ * 'both', so an old local cart keeps working.
+ *
+ * A service-only basket allows both: a gig is performed, not shipped or
+ * collected, so the choice is inert and must never block checkout.
+ */
+export function allowedFulfilments(shop: CartShop): ("delivery" | "pickup")[] {
+  if (isServiceOnly(shop)) return ["delivery", "pickup"];
+
+  const goods = shop.lines.filter((l) => !l.isService);
+  if (goods.length === 0) return ["delivery", "pickup"];
+
+  const modes = new Set(goods.map((l) => l.fulfilmentMode ?? "both"));
+  const allowsPickup = modes.has("both") || modes.has("pickup");
+  const allowsDelivery = modes.has("both") || modes.has("delivery");
+  // A product seller who has switched pickup off at shop level cannot be
+  // collected from, whatever the listing says.
+  const pickupAtShop = shop.pickupAvailable ? allowsPickup : false;
+
+  const out: ("delivery" | "pickup")[] = [];
+  if (pickupAtShop) out.push("pickup");
+  if (allowsDelivery) out.push("delivery");
+  return out;
+}
+
+/**
+ * True when the basket holds two lines that cannot share one fulfilment
+ * mode — the case `allowedFulfilments` reports as empty.
+ */
+export function hasFulfilmentConflict(shop: CartShop) {
+  return !isServiceOnly(shop) && shop.lines.some((l) => !l.isService) && allowedFulfilments(shop).length === 0;
 }
 
 export function shopDelivery(shop: CartShop) {

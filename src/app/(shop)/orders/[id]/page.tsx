@@ -6,6 +6,7 @@ import { naira, shortDate, ORDER_STATUS, ORDER_STEPS, SERVICE_STEPS, stepIndexFo
 import { Badge, Card, Alert } from "@/components/ui";
 import { UploadReceipt, ConfirmDelivery, RaiseIssue, LeaveReview } from "@/components/order-actions";
 import { ChatWithSeller } from "@/components/chat-with-seller";
+import { PickupPoint } from "@/components/pickup-point";
 import { supportWhatsAppUrl } from "@/lib/support";
 
 export const dynamic = "force-dynamic";
@@ -203,6 +204,21 @@ export default async function OrderDetailPage({ params }: { params: { id: string
             <p className="text-[13px] font-bold text-ink-900">Delivering to</p>
             <p className="mt-1 text-[12.5px] leading-relaxed text-ink-600">{o.address}</p>
           </Card>
+        )}
+
+        {/* Where to collect from.
+            A pickup order has no delivery address, so without this card the
+            buyer has a reference number and no idea where the shop is. The
+            pin and address come from the shop row (sql/0034); the directions
+            button asks for the buyer's own position only when they press it. */}
+        {o.fulfilment === "pickup" && !isService && (
+          <PickupPoint
+            shopName={o.shops?.name ?? "the seller"}
+            city={o.shops?.city ?? null}
+            address={o.shops?.shop_address ?? null}
+            lat={o.shops?.shop_lat ?? null}
+            lng={o.shops?.shop_lng ?? null}
+          />
         )}
       </div>
     </div>

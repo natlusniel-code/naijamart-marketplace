@@ -7,12 +7,17 @@ import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { naira, relTime } from "@/lib/utils";
 import { Avatar, Badge, Spinner, OrderStatusChip } from "@/components/ui";
+import { canGeolocate, coordsLabel, geolocationErrorMessage, getCurrentCoords, pinUrl } from "@/lib/geo";
 
 type Msg = {
   id: string;
   sender_id: string;
   body: string | null;
   image_url: string | null;
+  /** A location the sender deliberately shared (sql/0034). */
+  lat?: number | null;
+  lng?: number | null;
+  location_label?: string | null;
   created_at: string;
   read_at?: string | null;
   delivered_at?: string | null;
@@ -163,6 +168,16 @@ export function ChatThread({
    * receiver never sees it — the sender gets this one warning instead.
    */
   const [blocked, setBlocked] = useState("");
+  /**
+   * A location the sender is about to share.
+   *
+   * Held here rather than sent straight away so the sender sees the pin and
+   * the label before it leaves — sharing a position is not undoable, and a
+   * mis-tap on a phone should not put someone's street in a stranger's chat.
+   */
+  const [pendingLocation, setPendingLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locLabel, setLocLabel] = useState("");
   const top = useRef<HTMLDivElement | null>(null);
   const box = useRef<HTMLTextAreaElement | null>(null);
 
@@ -364,7 +379,70 @@ export function ChatThread({
     }
   }
 
-  /** Step 1 of an image send: stage it. Nothing is uploaded or sent yet. */
+  /**
+   * Step 1 of a location share: read the position and stage it.
+   *
+   * Nothing is sent here. The sender gets a preview with the coordinates and
+   * an optional label, and only "Send location" writes the row. That is the
+   * difference between a deliberate share and a mis-tap.
+   */
+  async function stageLocation() {
+    setErr("");
+    if (!canGeolocate()) {
+      setErr(geolocationErrorMessage(null));
+      return;
+    }
+    setLocating(true);
+    try {
+      const c = await getCurrentCoords();
+      setPendingLocation(c);
+    } catch (e) {
+      setErr(geolocationErrorMessage(e));
+    } finally {
+      setLocating(false);
+    }
+  }
+
+  /** Step 2: the sender confirmed. This is the only write. */
+  async function sendLocation() {
+    if (!pendingLocation) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("send_chat_message", {
+        p_chat_id: chatId,
+        p_body: null,
+        p_image_url: null,
+        p_package_ids: null,
+        p_lat: pendingLocation.lat,
+        p_lng: pendingLocation.lng,
+        p_location_label: locLabel.trim() || null,
+      });
+      if (error) throw new Error(error.message);
+
+      const result = (Array.isArray(data) ? data[0] : data) as
+        | { blocked?: boolean; warning?: string; message?: Msg }
+        | null;
+      if (result?.blocked) {
+        setBlocked(result.warning ?? "This message was not sent.");
+        setPendingLocation(null);
+        return;
+      }
+      if (result?.message) {
+        const saved = result.message;
+        setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
+      }
+      setPendingLocation(null);
+      setLocLabel("");
+    } catch (e: any) {
+      setErr(e.message ?? "Could not share that location.");
+    }
+    setBusy(false);
+  }
+
+  /**
+   * Step 1 of an image send: stage it. Nothing is uploaded or sent yet. */
   function stageImage(file: File) {
     if (!file.type.startsWith("image/")) {
       setErr("That file isn't an image.");
@@ -600,6 +678,34 @@ export function ChatThread({
                     <img src={m.image_url} alt="" className="max-h-56 rounded-lg object-cover" />
                   </a>
                 )}
+                {/* A shared location.
+                    Rendered as a tap-to-open card rather than a raw coordinate
+                    string: the receiver's job is to get there, and a link does
+                    that in one tap on a phone. The label (if the sender typed
+                    one) is shown above the pin so "my shop gate" is readable
+                    without opening Maps. */}
+                {typeof m.lat === "number" && typeof m.lng === "number" && (
+                  <a
+                    href={pinUrl({ lat: m.lat, lng: m.lng })}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`mb-1 flex items-center gap-2 rounded-xl px-2.5 py-2 ${
+                      mine ? "bg-white/15 hover:bg-white/25" : "bg-brand-50 hover:bg-brand-100"
+                    }`}
+                  >
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-500 text-[15px] text-white">
+                      📍
+                    </span>
+                    <span className="min-w-0">
+                      <span className={`block truncate text-[12.5px] font-semibold ${mine ? "text-white" : "text-ink-900"}`}>
+                        {m.location_label || "Shared location"}
+                      </span>
+                      <span className={`block font-mono text-[10px] ${mine ? "text-white/70" : "text-ink-500"}`}>
+                        {coordsLabel({ lat: m.lat, lng: m.lng })} · open in Maps
+                      </span>
+                    </span>
+                  </a>
+                )}
                 {m.body && <p className="whitespace-pre-line">{m.body}</p>}
                 <p className={`mt-1 flex items-center gap-1 text-[10px] ${mine ? "justify-end text-white/60" : "text-ink-400"}`}>
                   {relTime(m.created_at)}
@@ -689,6 +795,70 @@ export function ChatThread({
         </div>
       )}
 
+      {/* location preview — confirm before it is sent.
+          Same two-step pattern as the photo: a position is not something you
+          can take back once the other side has seen it, so the sender sees
+          the coordinates and can add a label before sending. */}
+      {pendingLocation && (
+        <div className="mb-2 rounded-xl border border-brand-500/30 bg-white p-3 shadow-card">
+          <div className="flex items-center justify-between pb-2">
+            <p className="text-[12.5px] font-bold text-ink-900">Share this location?</p>
+            <button
+              type="button"
+              onClick={() => { setPendingLocation(null); setLocLabel(""); }}
+              className="text-[11.5px] font-semibold text-ink-400 hover:text-ink-700"
+            >
+              Remove
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-xl bg-brand-50 px-3 py-2.5">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-500 text-[16px] text-white">
+              📍
+            </span>
+            <span className="min-w-0">
+              <span className="block font-mono text-[12px] font-semibold text-ink-900">
+                {coordsLabel(pendingLocation)}
+              </span>
+              <a
+                href={pinUrl(pendingLocation)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] font-semibold text-brand-700 underline"
+              >
+                Preview on Google Maps
+              </a>
+            </span>
+          </div>
+
+          <input
+            className="nm-input mt-2 !py-2 !text-[12.5px]"
+            placeholder="Label (optional) — e.g. my shop gate"
+            value={locLabel}
+            maxLength={80}
+            onChange={(e) => setLocLabel(e.target.value)}
+          />
+
+          <div className="mt-2 flex gap-2">
+            <button type="button" onClick={sendLocation} disabled={busy} className="nm-btn-primary flex-1 !py-2">
+              {busy ? <><Spinner /> Sending…</> : "Send location"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPendingLocation(null); setLocLabel(""); }}
+              disabled={busy}
+              className="nm-btn-ghost !py-2"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <p className="mt-1.5 text-center text-[10.5px] leading-relaxed text-ink-400">
+            Only {otherName} will see this. Nothing is stored beyond the message itself.
+          </p>
+        </div>
+      )}
+
       {/* offer composer (seller) */}
       {offerOpen && amSeller && (
         <form onSubmit={sendOffer} className="mb-2 space-y-2 rounded-xl border border-[var(--line)] bg-white p-3 shadow-card">
@@ -770,6 +940,21 @@ export function ChatThread({
           <input type="file" accept="image/*" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) stageImage(f); e.currentTarget.value = ""; }} />
         </label>
+        {/* Share a location.
+            Sits next to the attach button because it is the same kind of
+            action — adding something other than text to the message. It is
+            a button, not an automatic read, so nothing happens until it is
+            pressed. */}
+        <button
+          type="button"
+          onClick={stageLocation}
+          disabled={locating || busy}
+          aria-label="Share my location in this chat"
+          title="Share my location"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-ink-400 hover:bg-slate-50 hover:text-brand-600 disabled:opacity-50"
+        >
+          {locating ? <Spinner className="!h-4 !w-4" /> : "📍"}
+        </button>
         {amSeller && isServiceShop && hasAcceptedOffer && order ? (
           <button
             type="button"

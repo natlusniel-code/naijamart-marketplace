@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
-import { readCart, writeCart, clearCart, shopSubtotal, shopDelivery, isServiceOnly, type Cart } from "@/lib/cart";
+import { readCart, writeCart, clearCart, shopSubtotal, shopDelivery, isServiceOnly, allowedFulfilments, hasFulfilmentConflict, setFulfilment, type Cart } from "@/lib/cart";
 import { naira } from "@/lib/utils";
 import { Spinner, Alert, Badge } from "@/components/ui";
 import { SupportLink } from "@/components/support-link";
 import { CopyValue, CopyPaymentDetails } from "@/components/copy-value";
+import { PickupPoint } from "@/components/pickup-point";
 
 type SavedAddress = {
   id: string;
@@ -61,6 +62,23 @@ export function CheckoutFlow({
   // Every shop in the cart is a gig: nothing is shipped, so the delivery
   // address block is not shown at all.
   const allServiceOnly = shops.length > 0 && shops.every(isServiceOnly);
+
+  /**
+   * Which shops are collecting rather than shipping.
+   *
+   * A pickup order needs no address — the buyer travels to the shop — so
+   * the address block must not stand between them and checkout. It also
+   * must not be hidden when only *some* shops are pickup, because the
+   * others still need one; hence the per-shop test rather than a single
+   * `allPickup` flag.
+   */
+  const pickupShops = shops.filter((s) => s.fulfilment === "pickup" && !isServiceOnly(s));
+  const deliveryShops = shops.filter((s) => s.fulfilment === "delivery" && !isServiceOnly(s));
+  const needsAddress = deliveryShops.length > 0;
+  const allPickup = !allServiceOnly && deliveryShops.length === 0 && pickupShops.length > 0;
+
+  /** A basket the seller set up so that no single mode can serve it. */
+  const conflicts = shops.filter(hasFulfilmentConflict);
 
   // ₦20,000 is the cross-LGA threshold (platform_settings.cross_lga_min_total).
   // The server enforces it in place_order(); this only mirrors the message.
@@ -161,6 +179,12 @@ export function CheckoutFlow({
       setErr(outOfRange[0].problem);
       return;
     }
+    if (conflicts.length) {
+      setErr(
+        `${conflicts[0].shopName} has items that can only be collected and items that can only be shipped. Remove one line, or order them separately.`,
+      );
+      return;
+    }
     if (!agreed) {
       setErr("Please accept the NaijaMart Marketplace Policy and the payment terms to continue.");
       return;
@@ -175,7 +199,16 @@ export function CheckoutFlow({
         );
         return;
       }
-      // A service-only shop needs no address: nothing is being shipped.
+      // The seller's own fulfilment choice. A pickup-only shop can be
+      // collected; a delivery-only one needs an address. Saying which is
+      // wrong means the buyer fixes it here instead of getting a raw
+      // Postgres exception back from place_order.
+      if (hasFulfilmentConflict(s)) {
+        setErr(
+          `${s.shopName} has items that can only be collected and items that can only be shipped. Remove one line, or order them separately.`,
+        );
+        return;
+      }
       if (!isServiceOnly(s) && s.fulfilment === "delivery" && !addressText) {
         setErr("Add a delivery address, or switch that shop to pickup.");
         return;
@@ -247,8 +280,13 @@ export function CheckoutFlow({
         {/* address.
             Hidden entirely when every shop in the cart is a service: a gig is
             performed, not shipped, so there is no address to collect and
-            asking for one would be a field that changes nothing. */}
-        {!allServiceOnly && (
+            asking for one would be a field that changes nothing.
+
+            Also hidden when every goods shop is pickup: the buyer travels to
+            the shop, so a delivery address would be a field that changes
+            nothing either. A mixed cart keeps it, because the delivery shops
+            still need one. */}
+        {!allServiceOnly && needsAddress && (
         <div className="nm-card p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-[14.5px] font-bold text-ink-900">Delivery address</h2>
@@ -306,6 +344,17 @@ export function CheckoutFlow({
         </div>
         )}
 
+        {/* pickup notice.
+            Shown once, above the per-shop cards, when nothing in the cart is
+            being shipped. It explains why there is no address block — an
+            absent field with no explanation reads as a bug. */}
+        {allPickup && (
+          <Alert tone="blue" title="You're collecting this order">
+            Nothing is being delivered, so there is no address to enter and no delivery fee to pay.
+            Collect from the shop shown below — open it in Maps or get directions from where you are.
+          </Alert>
+        )}
+
         {/* per-shop orders + payment instructions */}
         {shops.map((s) => {
           const sub = shopSubtotal(s);
@@ -343,10 +392,32 @@ export function CheckoutFlow({
               <div className="space-y-1 border-t border-[var(--line)] px-4 py-2.5 text-[12.5px]">
                 <div className="flex justify-between"><span className="text-ink-500">Subtotal</span><span className="font-semibold">{naira(sub)}</span></div>
                 {!serviceOnly && (
-                  <div className="flex justify-between"><span className="text-ink-500">Delivery</span><span className="font-semibold">{fee === 0 ? "Free" : naira(fee)}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-ink-500">{s.fulfilment === "pickup" ? "Pickup" : "Delivery"}</span>
+                    <span className="font-semibold">
+                      {s.fulfilment === "pickup" ? "Free" : fee === 0 ? "Free" : naira(fee)}
+                    </span>
+                  </div>
                 )}
                 <div className="flex justify-between pt-1 text-[14px]"><span className="font-bold text-ink-900">Transfer exactly</span><span className="font-extrabold text-ink-900">{naira(sub + fee)}</span></div>
               </div>
+
+              {/* Where to collect from.
+                  Only for a shop the buyer is collecting from: a delivery
+                  order has no pickup point, and showing one would suggest
+                  they could turn up instead of waiting for the rider. */}
+              {!serviceOnly && s.fulfilment === "pickup" && (
+                <div className="px-4 pb-3">
+                  <PickupPoint
+                    shopName={s.shopName}
+                    city={s.city}
+                    address={s.pickupAddress ?? null}
+                    lat={s.pickupLat ?? null}
+                    lng={s.pickupLng ?? null}
+                    compact
+                  />
+                </div>
+              )}
 
               {/* bank details — the account reserved for THIS buyer (sql/0011).
                   Hidden entirely when this shop is out of range: showing an

@@ -44,6 +44,12 @@ export type Listing = {
   rating_count: number;
   delivery_fee_override: number | null;
   free_delivery_threshold: number | null;
+  /**
+   * The seller's fulfilment choice for this listing (sql/0034):
+   * 'both' | 'pickup' | 'delivery'. A product only; a service is always
+   * 'both' and the value is ignored.
+   */
+  fulfilment_mode?: "both" | "pickup" | "delivery" | null;
   shops?: ShopLite;
   categories?: { name: string; icon: string; slug: string } | null;
 };
@@ -67,6 +73,10 @@ export type ShopLite = {
   pickup_available: boolean;
   delivery_fee: number;
   free_delivery_threshold: number | null;
+  /** Where a buyer collects from (sql/0034). All optional on the shop row. */
+  shop_address?: string | null;
+  shop_lat?: number | null;
+  shop_lng?: number | null;
 };
 
 export type Place = { city: string; state: string | null; shop_count: number };
@@ -75,7 +85,7 @@ export type Place = { city: string; state: string | null; shop_count: number };
 export const ALL_CITIES = "all";
 
 const SHOP_COLS =
-  "id,name,slug,city,state,verified,rating_avg,rating_count,logo_url,banner_url,kind,category,status,subscription_status,description,pickup_available,delivery_fee,free_delivery_threshold,orders_delivered";
+  "id,name,slug,city,state,verified,rating_avg,rating_count,logo_url,banner_url,kind,category,status,subscription_status,description,pickup_available,delivery_fee,free_delivery_threshold,orders_delivered,shop_address,shop_lat,shop_lng";
 
 /**
  * The columns every listing card needs, in one place.
@@ -85,7 +95,7 @@ const SHOP_COLS =
  * typed result.
  */
 const LISTING_COLS =
-  `id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,service_mode,delivery_days,rating_avg,rating_count,delivery_fee_override,free_delivery_threshold,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`;
+  `id,shop_id,type,title,description,category_id,tags,price,original_price,discount_percent,stock,images,status,service_area,needs_home_visit,service_mode,delivery_days,rating_avg,rating_count,delivery_fee_override,free_delivery_threshold,fulfilment_mode,shops!inner(${SHOP_COLS}),categories(name,icon,slug)`;
 
 export async function getCategories() {
   const supabase = createClient();

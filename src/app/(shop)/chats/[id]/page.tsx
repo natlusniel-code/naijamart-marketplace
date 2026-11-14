@@ -41,7 +41,7 @@ export default async function ChatPage({
     supabase.from("profiles_public").select("full_name,avatar_url").eq("id", otherId).maybeSingle(),
     supabase
       .from("messages")
-      .select("id,sender_id,body,image_url,created_at,read_at,delivered_at")
+      .select("id,sender_id,body,image_url,lat,lng,location_label,created_at,read_at,delivered_at")
       .eq("chat_id", params.id)
       // Oldest first: the thread reads top-down to the newest message at the
       // bottom, right above the composer — WhatsApp order.

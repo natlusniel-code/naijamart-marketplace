@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { readCart, writeCart, setQuantity, setFulfilment, removeShop, shopSubtotal, shopDelivery, isServiceOnly, type Cart, type CartShop } from "@/lib/cart";
+import { readCart, writeCart, setQuantity, setFulfilment, removeShop, shopSubtotal, shopDelivery, isServiceOnly, allowedFulfilments, hasFulfilmentConflict, type Cart, type CartShop } from "@/lib/cart";
 import { naira, discountPercent } from "@/lib/utils";
 import { EmptyState, Alert, Badge } from "@/components/ui";
 import { StartConversationButton } from "@/components/start-conversation-button";
@@ -110,6 +110,8 @@ function ShopGroup({ shop }: { shop: CartShop }) {
   const sub = shopSubtotal(shop);
   const fee = shopDelivery(shop);
   const serviceOnly = isServiceOnly(shop);
+  const modes = allowedFulfilments(shop);
+  const conflict = hasFulfilmentConflict(shop);
   const remaining = shop.freeThreshold != null ? Math.max(0, shop.freeThreshold - sub) : 0;
   const pct = shop.freeThreshold ? Math.min(100, (sub / shop.freeThreshold) * 100) : 0;
 
@@ -180,25 +182,57 @@ function ShopGroup({ shop }: { shop: CartShop }) {
         </div>
       ) : (
         <div className="border-t border-[var(--line)] px-4 py-3">
-          <div className="flex items-center gap-2">
-            {shop.pickupAvailable && (
-              <button
-                onClick={() => setFulfilment(shop.shopId, "pickup")}
-                className={`nm-chip !py-1 ${shop.fulfilment === "pickup" ? "nm-chip-active" : ""}`}
-              >
-                Pickup
-              </button>
-            )}
-            <button
-              onClick={() => setFulfilment(shop.shopId, "delivery")}
-              className={`nm-chip !py-1 ${shop.fulfilment === "delivery" ? "nm-chip-active" : ""}`}
-            >
-              Delivery
-            </button>
-            <span className="ml-auto text-[12px] text-ink-500">
-              {shop.fulfilment === "pickup" ? "Free pickup" : fee === 0 ? "Free delivery" : `Delivery ${naira(fee)}`}
-            </span>
-          </div>
+          {conflict ? (
+            <p className="text-[11.5px] leading-relaxed text-amber-900">
+              This shop has items that can only be collected and items that can only be shipped, so
+              they can&apos;t share one order. Remove one line, or order them separately.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                {modes.includes("pickup") && (
+                  <button
+                    onClick={() => setFulfilment(shop.shopId, "pickup")}
+                    className={`nm-chip !py-1 ${shop.fulfilment === "pickup" ? "nm-chip-active" : ""}`}
+                    aria-pressed={shop.fulfilment === "pickup"}
+                  >
+                    Pickup
+                  </button>
+                )}
+                {modes.includes("delivery") && (
+                  <button
+                    onClick={() => setFulfilment(shop.shopId, "delivery")}
+                    className={`nm-chip !py-1 ${shop.fulfilment === "delivery" ? "nm-chip-active" : ""}`}
+                    aria-pressed={shop.fulfilment === "delivery"}
+                  >
+                    Delivery
+                  </button>
+                )}
+                {/* A shop that offers only one mode still says so plainly,
+                    instead of showing a single chip that looks optional. */}
+                {modes.length === 1 && (
+                  <span className="text-[11.5px] text-ink-400">
+                    {modes[0] === "pickup" ? "Pickup only" : "Delivery only"}
+                  </span>
+                )}
+                <span className="ml-auto text-[12px] text-ink-500">
+                  {shop.fulfilment === "pickup"
+                    ? "Free pickup"
+                    : fee === 0
+                      ? "Free delivery"
+                      : `Delivery ${naira(fee)}`}
+                </span>
+              </div>
+
+              {shop.fulfilment === "pickup" && (
+                <p className="mt-2 text-[11.5px] leading-relaxed text-ink-500">
+                  Collect from {shop.shopName}
+                  {shop.pickupAddress ? ` — ${shop.pickupAddress}` : ` in ${shop.city || "their shop"}`}.
+                  No delivery fee is charged.
+                </p>
+              )}
+            </>
+          )}
 
           {shop.freeThreshold != null && shop.fulfilment === "delivery" && (
             <div className="mt-2.5">

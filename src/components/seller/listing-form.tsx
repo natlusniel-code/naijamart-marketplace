@@ -66,6 +66,7 @@ export function ListingForm({
     service_area: listing?.service_area ?? "",
     needs_home_visit: listing?.needs_home_visit ?? false,
     delivery_days: listing?.delivery_days != null ? String(listing.delivery_days) : "",
+    fulfilment_mode: (listing?.fulfilment_mode ?? "both") as "both" | "pickup" | "delivery",
   });
   const [images, setImages] = useState<string[]>(listing?.images ?? []);
   const [tags, setTags] = useState<string[]>(listing?.tags ?? []);
@@ -187,6 +188,11 @@ export function ListingForm({
       needs_home_visit: type === "service" && serviceMode === "physical" ? form.needs_home_visit : false,
       service_mode: type === "service" ? serviceMode : null,
       delivery_days: type === "service" && form.delivery_days ? Number(form.delivery_days) : null,
+      // A service is performed, never shipped or collected, so the
+      // pickup/delivery choice is meaningless for it and is stored as
+      // 'both' (the column default) rather than a value that would imply
+      // a courier. A product keeps whatever the seller chose.
+      fulfilment_mode: type === "product" ? form.fulfilment_mode : "both",
       status,
     };
 
@@ -496,6 +502,63 @@ export function ListingForm({
                   onChange={(e) => setForm((f) => ({ ...f, free_delivery_threshold: e.target.value.replace(/\D/g, "") }))}
                   placeholder={shopDefaults.free_delivery_threshold ? `Shop: ${shopDefaults.free_delivery_threshold}` : "e.g. 20000"} />
               </div>
+            </div>
+          )}
+
+          {/* ---------------------------------------------------------------
+              How this listing is fulfilled.
+
+              A product can be shipped, collected, or both. A seller whose
+              shop is a lock-up with no courier sets "pickup only" and no
+              buyer is ever offered a delivery they cannot have; a seller who
+              only ships sets "delivery only" and no buyer turns up at a gate
+              that is not a shop.
+
+              Pickup carries NO delivery fee. The fee fields above still
+              apply — they are what a delivery costs — but a pickup order
+              never pays them, which is why the note below says so plainly.
+
+              Hidden for a service: a gig is performed, not shipped or
+              collected, so the choice cannot change anything.
+             --------------------------------------------------------------- */}
+          {type === "product" && (
+            <div className="rounded-xl border border-[var(--line)] bg-slate-50/60 p-3">
+              <label className="nm-label" htmlFor="fulfilment-mode">
+                How can buyers get this?
+              </label>
+              <select
+                id="fulfilment-mode"
+                className="nm-input mt-1.5"
+                value={form.fulfilment_mode}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    fulfilment_mode: e.target.value as "both" | "pickup" | "delivery",
+                  }))
+                }
+              >
+                <option value="both">Pickup and delivery</option>
+                <option value="pickup">Pickup only</option>
+                <option value="delivery">Delivery only</option>
+              </select>
+
+              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">
+                {form.fulfilment_mode === "pickup"
+                  ? "Buyers collect from your shop — no delivery fee is charged. Set your pickup address and pin in Shop settings."
+                  : form.fulfilment_mode === "delivery"
+                    ? "Buyers pay the delivery fee above. Pickup is not offered on this listing."
+                    : "Buyers choose at checkout. Pickup is free; delivery pays the fee above."}
+              </p>
+
+              {form.fulfilment_mode !== "delivery" && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-500">
+                  Turn on pickup in{" "}
+                  <a href="/seller/settings" className="font-semibold text-brand-700 underline">
+                    Shop settings
+                  </a>{" "}
+                  so buyers can see where to collect from.
+                </p>
+              )}
             </div>
           )}
 

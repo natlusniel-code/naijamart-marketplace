@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { Card, Spinner, Alert, Badge } from "@/components/ui";
+import { PickupLocationFields } from "@/components/seller/pickup-location-fields";
 import { naira } from "@/lib/utils";
 
 export function ShopSettingsForm({ shop }: { shop: any }) {
@@ -18,6 +19,9 @@ export function ShopSettingsForm({ shop }: { shop: any }) {
     delivery_fee: String(shop.delivery_fee ?? 500),
     free_delivery_threshold: shop.free_delivery_threshold != null ? String(shop.free_delivery_threshold) : "",
     pickup_available: !!shop.pickup_available,
+    shop_address: shop.shop_address ?? "",
+    shop_lat: (shop.shop_lat ?? null) as number | null,
+    shop_lng: (shop.shop_lng ?? null) as number | null,
     bank_name: shop.bank_name ?? "SmartCash",
     bank_account_number: shop.bank_account_number ?? "",
     bank_account_name: shop.bank_account_name ?? "",
@@ -50,6 +54,9 @@ export function ShopSettingsForm({ shop }: { shop: any }) {
       delivery_fee: Number(form.delivery_fee) || 0,
       free_delivery_threshold: form.free_delivery_threshold ? Number(form.free_delivery_threshold) : null,
       pickup_available: form.pickup_available,
+      shop_address: form.shop_address.trim() || null,
+      shop_lat: form.shop_lat,
+      shop_lng: form.shop_lng,
       bank_name: form.bank_name,
       bank_account_number: form.bank_account_number,
       bank_account_name: form.bank_account_name,
@@ -153,6 +160,30 @@ export function ShopSettingsForm({ shop }: { shop: any }) {
         <p className="text-[11px] text-ink-400">
           A buyer paying {naira(Number(form.free_delivery_threshold) || 0)} or more ships free.
         </p>
+
+        {/* Pickup point.
+            Only shown when pickup is switched on: an address and a pin for a
+            shop nobody can collect from would be a field that changes
+            nothing. The fee above still applies to delivery only — pickup is
+            always free, which is the point of offering it. */}
+        {form.pickup_available && (
+          <div className="border-t border-[var(--line)] pt-3">
+            <p className="mb-2 text-[12.5px] font-bold text-ink-900">Pickup point</p>
+            <PickupLocationFields
+              lat={form.shop_lat}
+              lng={form.shop_lng}
+              address={form.shop_address}
+              onChange={(next) =>
+                setForm((f) => ({
+                  ...f,
+                  shop_lat: next.lat,
+                  shop_lng: next.lng,
+                  shop_address: next.address,
+                }))
+              }
+            />
+          </div>
+        )}
       </Card>
 
       <Card className="p-4 space-y-2.5">

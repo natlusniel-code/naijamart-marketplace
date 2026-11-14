@@ -50,7 +50,7 @@ export default async function SellerChatPage({ params }: { params: { id: string 
     supabase.from("profiles_public").select("full_name,avatar_url").eq("id", otherId).maybeSingle(),
     supabase
       .from("messages")
-      .select("id,sender_id,body,image_url,created_at,read_at,delivered_at")
+      .select("id,sender_id,body,image_url,lat,lng,location_label,created_at,read_at,delivered_at")
       .eq("chat_id", params.id)
       // Oldest first: newest message at the bottom, above the composer.
       .order("created_at", { ascending: true }),

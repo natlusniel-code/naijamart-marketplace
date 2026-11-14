@@ -11,8 +11,8 @@ export function AddToCartBar({
   shop,
   signedIn,
 }: {
-  listing: { id: string; title: string; price: number; original_price?: number | null; images: string[]; type?: "product" | "service" };
-  shop: { id: string; slug: string; name: string; logo_url: string | null; city: string | null; state: string | null; delivery_fee: number; free_delivery_threshold: number | null; pickup_available: boolean };
+  listing: { id: string; title: string; price: number; original_price?: number | null; images: string[]; type?: "product" | "service"; fulfilment_mode?: "both" | "pickup" | "delivery" | null };
+  shop: { id: string; slug: string; name: string; logo_url: string | null; city: string | null; state: string | null; delivery_fee: number; free_delivery_threshold: number | null; pickup_available: boolean; shop_address?: string | null; shop_lat?: number | null; shop_lng?: number | null };
   signedIn: boolean;
 }) {
   const router = useRouter();
@@ -31,6 +31,9 @@ export function AddToCartBar({
       deliveryFee: shop.delivery_fee,
       freeThreshold: shop.free_delivery_threshold,
       pickupAvailable: shop.pickup_available,
+      pickupAddress: shop.shop_address ?? null,
+      pickupLat: shop.shop_lat ?? null,
+      pickupLng: shop.shop_lng ?? null,
       listingId: listing.id,
       title: listing.title,
       price: listing.price,
@@ -38,6 +41,7 @@ export function AddToCartBar({
       image: listing.images?.[0] ?? null,
       quantity: qty,
       isService: listing.type === "service",
+      fulfilmentMode: listing.type === "service" ? "both" : (listing.fulfilment_mode ?? "both"),
     });
     if (then === "checkout") {
       setBusy(true);

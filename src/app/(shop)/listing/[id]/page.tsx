@@ -13,6 +13,7 @@ import { GigPackages } from "@/components/gig-packages";
 import { GigReviewForm } from "@/components/gig-review-form";
 import { Gallery } from "@/components/gallery";
 import { WishlistButton } from "@/components/wishlist-button";
+import { PickupPoint } from "@/components/pickup-point";
 import { getWishlistIds } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -130,25 +131,53 @@ export default async function ListingPage({ params }: { params: { id: string } }
           />
         )}
 
-        {/* delivery block */}
+        {/* delivery block.
+            Which of the two lines shows is the seller's choice for this
+            listing (sql/0034): a pickup-only item must not advertise a
+            courier, and a delivery-only one must not invite a collection
+            at a shop that has no counter. */}
         {!isService && (
           <div className="nm-card p-4">
             <h2 className="text-[14px] font-bold text-ink-900">Delivery &amp; pickup</h2>
             <div className="mt-2 space-y-1.5 text-[13px] text-ink-600">
-              <p className="flex items-start gap-2">
-                <span className="mt-0.5 text-brand-600">🚚</span>
-                Delivery: <strong className="text-ink-900">{naira(l.delivery_fee_override ?? shop.delivery_fee)}</strong>
-                {shop.free_delivery_threshold ? (
-                  <> · Free above {naira(shop.free_delivery_threshold)}</>
-                ) : null}
-              </p>
-              {shop.pickup_available && (
+              {(l.fulfilment_mode ?? "both") !== "pickup" && (
+                <p className="flex items-start gap-2">
+                  <span className="mt-0.5 text-brand-600">🚚</span>
+                  Delivery: <strong className="text-ink-900">{naira(l.delivery_fee_override ?? shop.delivery_fee)}</strong>
+                  {shop.free_delivery_threshold ? (
+                    <> · Free above {naira(shop.free_delivery_threshold)}</>
+                  ) : null}
+                </p>
+              )}
+              {(l.fulfilment_mode ?? "both") !== "delivery" && (
                 <p className="flex items-start gap-2">
                   <span className="mt-0.5 text-brand-600">🏬</span>
-                  Pickup available in {shop.city} — free
+                  <span>
+                    Pickup {shop.pickup_available ? "available" : "not set up yet"} in {shop.city || shop.state || "the seller's area"} —{" "}
+                    <strong className="text-ink-900">free</strong>
+                  </span>
+                </p>
+              )}
+              {(l.fulfilment_mode ?? "both") === "pickup" && (
+                <p className="text-[11.5px] leading-relaxed text-ink-400">
+                  This item is collection only — no delivery fee is ever charged for it.
                 </p>
               )}
             </div>
+
+            {(l.fulfilment_mode ?? "both") !== "delivery" && shop.pickup_available && (
+              <div className="mt-3">
+                <PickupPoint
+                  shopName={shop.name}
+                  city={shop.city}
+                  address={shop.shop_address ?? null}
+                  lat={shop.shop_lat ?? null}
+                  lng={shop.shop_lng ?? null}
+                  compact
+                />
+              </div>
+            )}
+
             <div className="mt-3 rounded-xl bg-brand-50 px-3 py-2 text-[12px] leading-relaxed text-brand-900">
               Your payment stays with NaijaMart until you confirm you got the item. If it never arrives, you get your money back.
             </div>
@@ -323,12 +352,15 @@ export default async function ListingPage({ params }: { params: { id: string } }
         {!isService && inStock && (
           <div className="hidden lg:block">
             <AddToCartBar
-              listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [], type: l.type }}
+              listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [], type: l.type, fulfilment_mode: l.fulfilment_mode ?? "both" }}
               shop={{
                 id: shop.id, slug: shop.slug, name: shop.name, logo_url: shop.logo_url,
                 city: shop.city, state: shop.state, delivery_fee: Number(shop.delivery_fee),
                 free_delivery_threshold: shop.free_delivery_threshold ? Number(shop.free_delivery_threshold) : null,
                 pickup_available: shop.pickup_available,
+                shop_address: shop.shop_address ?? null,
+                shop_lat: shop.shop_lat ?? null,
+                shop_lng: shop.shop_lng ?? null,
               }}
               signedIn={!!session}
             />
@@ -347,12 +379,15 @@ export default async function ListingPage({ params }: { params: { id: string } }
       {!isService && inStock && (
         <div className="lg:hidden">
           <AddToCartBar
-            listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [], type: l.type }}
+            listing={{ id: l.id, title: l.title, price: Number(l.price), original_price: l.original_price, images: l.images ?? [], type: l.type, fulfilment_mode: l.fulfilment_mode ?? "both" }}
             shop={{
               id: shop.id, slug: shop.slug, name: shop.name, logo_url: shop.logo_url,
               city: shop.city, state: shop.state, delivery_fee: Number(shop.delivery_fee),
               free_delivery_threshold: shop.free_delivery_threshold ? Number(shop.free_delivery_threshold) : null,
               pickup_available: shop.pickup_available,
+              shop_address: shop.shop_address ?? null,
+              shop_lat: shop.shop_lat ?? null,
+              shop_lng: shop.shop_lng ?? null,
             }}
             signedIn={!!session}
           />

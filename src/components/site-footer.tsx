@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SupportLink } from "@/components/support-link";
+import { ShareLocationButton } from "@/components/share-location-button";
 import { SUPPORT_WHATSAPP_DISPLAY } from "@/lib/support";
 
 /**
@@ -32,6 +33,15 @@ export function SiteFooter() {
           <span className="text-ink-300">·</span>
           <span className="text-ink-400">WhatsApp {SUPPORT_WHATSAPP_DISPLAY}</span>
         </div>
+      </div>
+
+      {/* Location sharing.
+          Sits on its own row so the privacy note has room to breathe on a
+          phone, and so the button is not lost among the footer links. The
+          component is client-side only and never sends the coordinates
+          anywhere — see src/components/share-location-button.tsx. */}
+      <div className="mx-auto max-w-7xl border-t border-[var(--line)] px-4 py-4">
+        <ShareLocationButton />
       </div>
     </footer>
   );
