@@ -38,6 +38,18 @@ const SERVICE_ROLE_KEY =
 export const hasAdminKey = SERVICE_ROLE_KEY.length > 0;
 
 /**
+ * The resolved service-role key.
+ *
+ * Exported for the one caller that needs raw REST rather than the
+ * supabase-js query builder: the copilot's schema introspection, which
+ * reads PostgREST's OpenAPI root to learn what tables and columns exist
+ * right now. Server-only, like everything else in this module.
+ */
+export function serviceRoleKey(): string {
+  return SERVICE_ROLE_KEY;
+}
+
+/**
  * Service-role client: bypasses RLS. Server-side only — never pass this to a
  * Client Component, never serialise it, never read it from the browser.
  *

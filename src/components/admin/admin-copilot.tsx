@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { askAdminCopilot } from "@/app/admin-fuckliving/ai-actions";
+import { useEffect, useRef, useState } from "react";
+import { askAdminCopilot, getCopilotCapabilities } from "@/app/admin-fuckliving/ai-actions";
 import { Spinner } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
@@ -11,16 +11,27 @@ type Turn = {
   /** The rows the answer was based on, for the "show the data" expander. */
   data?: unknown;
   tools?: { name: string }[];
+  schemaTables?: number;
 };
 
-/** The questions an admin actually asks, as one-tap starters. */
+type Capability = { name: string; columns: number; rows: number | null };
+
+/**
+ * The questions an admin actually asks, as one-tap starters.
+ *
+ * The last three deliberately reach past the named queries — enquiries,
+ * offers and reviews are tables the old copilot could not see at all, so
+ * they double as a demonstration that the whole database is now in scope.
+ */
 const STARTERS = [
   "How are we doing this month?",
   "What payments are waiting to be verified?",
   "Which payouts are due?",
   "What disputes are still open?",
   "Which sellers are performing best?",
-  "What is in the safety queue?",
+  "How many enquiries came in this week?",
+  "What offers are pending?",
+  "Show me the most recent reviews",
 ];
 
 /**
@@ -31,13 +42,37 @@ const STARTERS = [
  * see the rows behind it. Every answer carries a collapsible "show the
  * data" panel with the exact query output, so a wrong answer is
  * diagnosable rather than mysterious.
+ *
+ * ── Why the schema panel ─────────────────────────────────────────────────
+ * The copilot can now read every table in the database, but an admin
+ * cannot ask about a table they do not know exists. The panel lists the
+ * live tables with their row counts, read from the same snapshot the
+ * copilot uses, so the two can never disagree. Clicking a table name drops
+ * it into the question box.
  */
 export function AdminCopilot() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [caps, setCaps] = useState<Capability[] | null>(null);
+  const [capsAsOf, setCapsAsOf] = useState<string | null>(null);
+  const [showSchema, setShowSchema] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Load the live table list once, so the admin can see the scope.
+  useEffect(() => {
+    let alive = true;
+    getCopilotCapabilities().then((r) => {
+      if (!alive || !r.ok) return;
+      setCaps(r.tables ?? []);
+      setCapsAsOf(r.asOf ?? null);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function ask(question: string) {
     const q = question.trim();
@@ -65,6 +100,7 @@ export function AdminCopilot() {
         body: result.answer ?? "",
         data: result.data,
         tools: (result.tools as { name: string }[]) ?? [],
+        schemaTables: result.schemaTables,
       },
     ]);
 
@@ -72,8 +108,61 @@ export function AdminCopilot() {
     requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
   }
 
+  /** Drop a table name into the question box and focus it. */
+  function useTable(name: string) {
+    setText(`Show me the most recent rows in ${name}`);
+    inputRef.current?.focus();
+  }
+
+  const totalRows = caps?.reduce((a, c) => a + (c.rows ?? 0), 0) ?? 0;
+
   return (
     <div className="space-y-3">
+      {/* ── What the copilot can see ─────────────────────────────────── */}
+      {caps && caps.length > 0 && (
+        <div className="rounded-xl border border-[var(--line)] bg-slate-50/60 p-3">
+          <button
+            type="button"
+            onClick={() => setShowSchema((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 text-left"
+            aria-expanded={showSchema}
+          >
+            <span className="text-[11.5px] font-semibold text-ink-700">
+              Connected to the live database — {caps.length} tables
+              {totalRows > 0 ? `, ${totalRows.toLocaleString()} rows` : ""}
+            </span>
+            <span className="text-[11px] font-semibold text-brand-700">
+              {showSchema ? "Hide tables" : "Show tables"}
+            </span>
+          </button>
+
+          {showSchema && (
+            <div className="mt-2.5">
+              <div className="flex flex-wrap gap-1.5">
+                {caps.map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => useTable(c.name)}
+                    title={`${c.columns} columns${c.rows != null ? `, ${c.rows} rows` : ""}`}
+                    className="rounded-full border border-[var(--line)] bg-white px-2.5 py-1 text-[10.5px] font-semibold text-ink-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+                  >
+                    {c.name}
+                    {c.rows != null && (
+                      <span className="ml-1 text-ink-400">{c.rows.toLocaleString()}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[10.5px] leading-relaxed text-ink-400">
+                Every table in the database is readable. Tap one to ask about it.
+                {capsAsOf && ` Schema read ${new Date(capsAsOf).toLocaleTimeString()}.`}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {turns.length === 0 && (
         <div className="flex flex-wrap gap-1.5">
           {STARTERS.map((s) => (
@@ -148,9 +237,10 @@ export function AdminCopilot() {
         className="flex gap-2"
       >
         <input
+          ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Ask about payments, payouts, disputes, sellers…"
+          placeholder="Ask about anything — orders, enquiries, offers, reviews, sellers…"
           className="nm-input flex-1"
           aria-label="Ask the copilot"
         />

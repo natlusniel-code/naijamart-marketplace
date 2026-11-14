@@ -20,7 +20,7 @@ import { createAdminClient, hasAdminKey } from "@/lib/supabase/admin";
 import { checkListing, checkShop, checkReview } from "@/lib/ai-safety";
 import { analyseShopQuality } from "@/lib/ai-quality";
 import { generateSellerInsights } from "@/lib/ai-seller-insights";
-import { askCopilot } from "@/lib/ai-copilot";
+import { askCopilot, copilotCapabilities } from "@/lib/ai-copilot";
 
 export type ActionResult = { ok: boolean; error?: string };
 
@@ -234,7 +234,15 @@ export async function refreshSellerInsights(shopId: string): Promise<ActionResul
 export async function askAdminCopilot(input: {
   question: string;
   history?: { role: "user" | "assistant"; body: string }[];
-}): Promise<{ ok: boolean; answer?: string; tools?: unknown; data?: unknown; error?: string }> {
+}): Promise<{
+  ok: boolean;
+  answer?: string;
+  tools?: unknown;
+  data?: unknown;
+  schemaTables?: number;
+  schemaAsOf?: string;
+  error?: string;
+}> {
   if (!hasAdminKey) return { ok: false, error: NO_KEY };
 
   try {
@@ -244,7 +252,34 @@ export async function askAdminCopilot(input: {
       answer: result.answer,
       tools: result.tools,
       data: result.data,
+      schemaTables: result.schemaTables,
+      schemaAsOf: result.schemaAsOf,
     };
+  } catch (error) {
+    const f = fail(error);
+    return { ok: false, error: f.error };
+  }
+}
+
+/**
+ * What the copilot can see.
+ *
+ * The copilot page shows this so an admin can browse the live tables and
+ * their row counts instead of guessing what exists. It is the same schema
+ * snapshot the copilot itself uses, so the list and the answers can never
+ * disagree.
+ */
+export async function getCopilotCapabilities(): Promise<{
+  ok: boolean;
+  tables?: { name: string; columns: number; rows: number | null }[];
+  asOf?: string | null;
+  error?: string;
+}> {
+  if (!hasAdminKey) return { ok: false, error: NO_KEY };
+
+  try {
+    const caps = await copilotCapabilities();
+    return { ok: true, tables: caps.tables, asOf: caps.asOf };
   } catch (error) {
     const f = fail(error);
     return { ok: false, error: f.error };

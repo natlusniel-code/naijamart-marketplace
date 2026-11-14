@@ -24,8 +24,8 @@ export default function CopilotPage() {
       <div>
         <h1 className="text-[22px] font-extrabold tracking-tight text-ink-900">Copilot</h1>
         <p className="mt-0.5 text-[12.5px] text-ink-500">
-          Ask about payments, payouts, disputes, sellers or orders. It reads live data and cannot
-          change anything.
+          Ask about anything in the live database — orders, payments, sellers, buyers, enquiries,
+          offers, reviews, and every other table. It reads live data and cannot change anything.
         </p>
       </div>
 
