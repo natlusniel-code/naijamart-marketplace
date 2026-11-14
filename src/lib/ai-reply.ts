@@ -1,7 +1,7 @@
 /**
  * AI seller reply.
  *
- * ── The two modes ────────────────────────────────────────────────────────
+ * ── The two modes ───────────────────────────────────────────────────────
  *   OFFLINE  the seller has not been seen for 3 minutes → the AI answers
  *            the buyer itself, and the message is marked `ai_generated`
  *            so the thread says so honestly.
@@ -9,21 +9,21 @@
  *            reads it, edits it if they want, and presses send. Nothing
  *            is sent on their behalf.
  *
- * ── Why the mode is decided on the server ────────────────────────────────
+ * ── Why the mode is decided on the server ───────────────────────────────
  * If the browser decided, a stale tab would keep auto-replying after the
  * seller came back, and the seller would be talking to buyers through a
  * bot they thought was off. `seller_is_online` (sql/0035) reads
  * `shops.last_seen_at`, which the seller's shell heartbeats. The decision
  * is made where the truth is.
  *
- * ── Why the AI is given the shop's real facts ────────────────────────────
+ * ── Why the AI is given the shop's real facts ───────────────────────────
  * A generic "reply helpfully" prompt produces a reply that invents a
  * delivery time and a price. The prompt below is given the shop's actual
  * delivery fee, its listings, its policies and the recent thread, and is
  * told to answer only from those. If it does not know, it must say it will
  * check — which is what a good human seller does.
  *
- * ── Why the chat guard still applies ─────────────────────────────────────
+ * ── Why the chat guard still applies ────────────────────────────────────
  * An AI reply is a message like any other. It goes through
  * `send_chat_message` (sql/0011), so the block list still runs on it. An
  * AI that could leak a phone number would be worse than no AI at all.
@@ -53,6 +53,15 @@ export type ReplyContext = {
   };
   /** A few of the shop's live listings, so the AI can talk about real items. */
   listings: { title: string; price: number; type: string }[];
+  /**
+   * The seller's own FAQs, as one formatted block (sql/0041).
+   *
+   * Empty string when the seller has written none. This is the seller's
+   * own words about the things the shop facts cannot cover — delivery
+   * areas, payment on delivery, turnaround on a custom job — and the reply
+   * is told to follow it.
+   */
+  faqs: string;
   /** Whether the buyer has an order in flight on this chat. */
   orderStatus?: string | null;
 };
@@ -81,7 +90,7 @@ export async function loadReplyContext(chatId: string): Promise<ReplyContext | n
   const shop: any = c.shops;
   if (!shop) return null;
 
-  const [{ data: messages }, { data: listings }] = await Promise.all([
+  const [{ data: messages }, { data: listings }, { data: faqBlock }] = await Promise.all([
     supabase
       .from("messages")
       .select("sender_id,body,created_at")
@@ -94,6 +103,10 @@ export async function loadReplyContext(chatId: string): Promise<ReplyContext | n
       .eq("shop_id", shop.id)
       .eq("status", "live")
       .limit(8),
+    // The seller's own FAQs, formatted for the prompt by the database so
+    // the shape lives in one place (sql/0041). Returns '' when there are
+    // none, so it can be appended unconditionally.
+    supabase.rpc("shop_faq_prompt", { p_shop_id: shop.id }),
   ]);
 
   // Newest-first from the query, oldest-first for the prompt.
@@ -127,6 +140,7 @@ export async function loadReplyContext(chatId: string): Promise<ReplyContext | n
       price: Number(l.price ?? 0),
       type: l.type,
     })),
+    faqs: typeof faqBlock === "string" ? faqBlock : "",
     orderStatus: (c.orders as any)?.status ?? null,
   };
 }
@@ -164,6 +178,15 @@ export async function draftReply(
     .map((m) => `${m.from === "buyer" ? "Buyer" : "Seller"}: ${m.body}`)
     .join("\n");
 
+  // ── The seller's own FAQs ──────────────────────────────────────────────
+  // When the seller has written FAQs, they are the seller's OWN words and
+  // outrank the generic rules below: if an FAQ answers the buyer's
+  // question, the reply must follow it. This is what makes the AI answer
+  // the way this particular seller would, instead of guessing.
+  const faqBlock = ctx.faqs.trim()
+    ? `\n\nTHE SELLER'S OWN FAQS (these are the seller's own words — when one of them answers the buyer's question, follow it exactly, including any price, area or timeframe it states):\n${ctx.faqs.trim()}`
+    : "";
+
   const instruction =
     mode === "auto"
       ? `The seller is OFFLINE right now, so you are replying on their behalf. Write a reply that is safe to send without anyone reading it first.
@@ -171,6 +194,7 @@ export async function draftReply(
 Rules for an offline reply:
 - 1-3 short sentences. No more.
 - Answer only what you can answer from the facts. If the question needs the seller (a custom price, a complaint, a refund), say the seller will reply shortly — do not invent an answer.
+- If the seller's own FAQs answer the question, use that answer — it is the seller's own words and overrides your own phrasing.
 - Never promise a delivery date, a discount, or a custom price.
 - Never share a phone number, email, WhatsApp, bank account or any link. All payment stays on NaijaMart.
 - End by making clear the seller will follow up personally.
@@ -180,6 +204,7 @@ Rules for an offline reply:
 Rules for a suggested reply:
 - 1-4 short sentences, warm and direct.
 - Use the facts. If the buyer asked about delivery, give the real fee. If they asked about an item, use its real price.
+- If the seller's own FAQs answer the question, follow that answer — it is the seller's own words and overrides your own phrasing.
 - If something needs the seller's decision (a discount, a custom job), draft the reply that moves it forward without committing them to a number they did not set.
 - Never share a phone number, email, WhatsApp, bank account or any link. All payment stays on NaijaMart.
 - No "As an AI". Write as the seller.`;
@@ -195,7 +220,7 @@ Rules for a suggested reply:
       prompt: `You are replying to a buyer on NaijaMart, a Nigerian marketplace.
 
 SHOP FACTS (the only facts you may use):
-${facts}
+${facts}${faqBlock}
 
 CONVERSATION SO FAR:
 ${thread || "(this is the first message)"}
@@ -273,7 +298,7 @@ export async function handleBuyerMessage(
       .maybeSingle();
     if (!shop?.ai_reply_enabled) return { mode: null, sent: false, reason: "disabled" };
 
-    // ── Is the AI reply part of this shop's plan? ──────────────────────────
+    // ── Is the AI reply part of this shop's plan? ─────────────────────────
     // `seller_has_feature` reads the plan row, the payment state and the
     // shop's approval — the same gate the rest of the app uses. Without it
     // a Basic shop would get the feature its own comparison page says it
@@ -285,7 +310,7 @@ export async function handleBuyerMessage(
     if (entitled !== true) return { mode: null, sent: false, reason: "not_in_plan" };
 
     /*
-      ── Auto or suggest? ────────────────────────────────────────────────
+      ── Auto or suggest? ──────────────────────────────────────────────────
       THE BUG THIS FIXES
       The heartbeat (`shops.last_seen_at`, pinged every 60s by any open hub
       tab) answers "is a tab open somewhere", NOT "can the seller answer
@@ -343,7 +368,7 @@ export async function handleBuyerMessage(
       p_mode: mode,
     });
 
-    // ── Auto mode: send it ────────────────────────────────────────────
+    // ── Auto mode: send it ────────────────────────────────────────────────
     // Through `send_ai_reply` (sql/0039), NOT `send_chat_message`.
     //
     // `send_chat_message` derives the sender from `auth.uid()`, and the

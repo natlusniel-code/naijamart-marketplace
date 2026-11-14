@@ -5,7 +5,9 @@ import { getSession, createClient } from "@/lib/supabase/server";
 import { naira, shortDate } from "@/lib/utils";
 import { Card, Badge, Alert } from "@/components/ui";
 import { ShopSettingsForm } from "@/components/seller/shop-settings-form";
+import { SellerFaqManager } from "@/components/seller/seller-faq-manager";
 import { CopyLinkButton } from "@/components/copy-link-button";
+import { shopHasFeature } from "@/lib/plan-gate";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Shop settings" };
@@ -27,6 +29,20 @@ export default async function ShopSettingsPage() {
   const proto = h.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
   const origin = host ? `${proto}://${host}` : "https://naijamart-marketplace-opal.vercel.app";
   const shopUrl = `${origin}/shop/${shop.slug}`;
+
+  // ── Seller FAQs are a Premium feature ──────────────────────────────────
+  // Gated on the SAME key the AI reply itself uses (`aiReply`), so the
+  // editor and the feature it feeds can never disagree. A Basic seller
+  // never sees the editor; the server actions re-check the gate anyway.
+  const faqEnabled = await shopHasFeature(shop.id, "aiReply");
+  const { data: faqs } = faqEnabled
+    ? await supabase
+        .from("seller_faqs")
+        .select("id,question,answer,sort_order")
+        .eq("shop_id", shop.id)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+    : { data: [] };
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -54,6 +70,9 @@ export default async function ShopSettingsPage() {
       </Card>
 
       <ShopSettingsForm shop={shop} />
+
+      {/* Premium only — the AI reply is conditioned on these answers. */}
+      {faqEnabled && <SellerFaqManager initialFaqs={faqs ?? []} />}
 
       <Card className="p-4">
         <p className="text-[13.5px] font-bold text-ink-900">Shareable shop link</p>

@@ -8,7 +8,7 @@ import {
   BANNER_SPECS,
   MAX_FILE_BYTES,
   MAX_PHOTOS,
-  MIN_DETAILS_CHARS,
+  MIN_TITLE_CHARS,
   AiListingError,
   bannerPromptsToText,
   copyText,
@@ -18,6 +18,7 @@ import {
   regenerateField,
   urlToBase64,
   type GeneratedListing,
+  type ListingKind,
   type PreparedImage,
   type RegenerateField,
 } from "@/lib/ai-listing";
@@ -25,25 +26,33 @@ import {
 /**
  * The "✨ Generate with AI" panel at the top of the listing form.
  *
- * ── The flow the seller sees ───────────────────────────────────────────────
- *  1. Add up to six photos and type what the product is (compulsory).
- *  2. Press "Analyse product" — the photos upload to storage while Gemini
- *     reads them, in parallel, so the upload costs no extra waiting.
+ * ── The flow the seller sees ────────────────────────────────────────────
+ *  1. Type a TITLE. That alone is enough. A description is optional; up to
+ *     six photos are optional for a service and compulsory for a product.
+ *  2. Press "Analyse" — the photos upload to storage while Gemini reads
+ *     them, in parallel, so the upload costs no extra waiting.
  *  3. The listing copy appears in editable fields.
  *  4. The six banner art-direction prompts appear, and can be copied all at
  *     once with a single action.
  *
- * ── Why the banner prompts are shown, not rendered ─────────────────────────
+ * ── Why the banner prompts are shown, not rendered ──────────────────────
  * The brief is explicit: Gemini produces the six banner prompts, and the
  * seller takes them away to render elsewhere. They are shown in a copyable
  * block — one "Copy all" action copies all six at once.
+ *
+ * ── Why `kind` is a prop ────────────────────────────────────────────────
+ * A product and a service get different copy and different banner art
+ * direction (a product campaign vs a gig flyer), and different input rules
+ * (a product needs a photo, a service does not). The panel is the same
+ * component for both; `kind` is what makes it behave correctly.
  */
 
-const DRAFT_VERSION = 2;
+const DRAFT_VERSION = 3;
 
 type Draft = {
   v: number;
   listing: GeneratedListing;
+  title: string;
   details: string;
   imageUrls: string[];
 };
@@ -55,15 +64,19 @@ function draftKey(shopId: string, listingId?: string) {
 export function AiListingPanel({
   shopId,
   listingId,
+  kind,
   onApply,
 }: {
   shopId: string;
   listingId?: string;
+  /** Product or service — decides the prompt shape and the input rules. */
+  kind: ListingKind;
   /** Write the generated copy into the form's own fields. */
   onApply: (v: { title: string; description: string; tags: string[] }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [photos, setPhotos] = useState<{ file: File; prepared: PreparedImage }[]>([]);
+  const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
   const [busy, setBusy] = useState(false);
   const [slow, setSlow] = useState(false);
@@ -79,7 +92,10 @@ export function AiListingPanel({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const key = useMemo(() => draftKey(shopId, listingId), [shopId, listingId]);
 
-  const canGenerate = photos.length > 0 && details.trim().length >= MIN_DETAILS_CHARS;
+  const isService = kind === "service";
+  const titleOk = title.trim().length >= MIN_TITLE_CHARS;
+  const photosOk = isService || photos.length > 0;
+  const canGenerate = titleOk && photosOk;
 
   /* ---------------------------------------------------------- restore */
 
@@ -90,6 +106,7 @@ export function AiListingPanel({
       const d = JSON.parse(raw) as Draft;
       if (d?.v !== DRAFT_VERSION || !d.listing) return;
       setResult(d.listing);
+      setTitle(d.title ?? "");
       setDetails(d.details ?? "");
       setImageUrls(d.imageUrls ?? []);
       setOpen(true);
@@ -103,12 +120,12 @@ export function AiListingPanel({
   useEffect(() => {
     if (!result) return;
     try {
-      const d: Draft = { v: DRAFT_VERSION, listing: result, details, imageUrls };
+      const d: Draft = { v: DRAFT_VERSION, listing: result, title, details, imageUrls };
       localStorage.setItem(key, JSON.stringify(d));
     } catch {
       /* quota or private mode — the in-memory result still works */
     }
-  }, [result, details, imageUrls, key]);
+  }, [result, title, details, imageUrls, key]);
 
   /* --------------------------------------------------------- cleanup */
 
@@ -169,12 +186,12 @@ export function AiListingPanel({
   /* ------------------------------------------------------- generate */
 
   async function generate() {
-    if (!photos.length) {
-      setErr("Add at least one product photo first.");
+    if (!titleOk) {
+      setErr("Add a title first.");
       return;
     }
-    if (details.trim().length < MIN_DETAILS_CHARS) {
-      setErr("Product details are required.");
+    if (!photosOk) {
+      setErr("Add at least one product photo first.");
       return;
     }
 
@@ -207,8 +224,10 @@ export function AiListingPanel({
 
     try {
       const listing = await generateListing({
-        images: photos.map((p) => ({ base64: p.prepared.base64, mimeType: p.prepared.mimeType })),
+        kind,
+        title,
         details,
+        images: photos.map((p) => ({ base64: p.prepared.base64, mimeType: p.prepared.mimeType })),
         signal: controller.signal,
       });
       setResult(listing);
@@ -254,6 +273,8 @@ export function AiListingPanel({
 
       const value = await regenerateField({
         field,
+        kind,
+        title,
         images,
         details,
         context: result,
@@ -292,6 +313,7 @@ export function AiListingPanel({
   function discard() {
     setResult(null);
     setPhotos([]);
+    setTitle("");
     setDetails("");
     setImageUrls([]);
     setErr("");
@@ -319,7 +341,9 @@ export function AiListingPanel({
         <span className="min-w-0 flex-1">
           <span className="block text-[14px] font-bold text-ink-900">Generate with AI</span>
           <span className="mt-0.5 block text-[12px] leading-snug text-ink-500">
-            Upload photos — we write the listing and design six banners.
+            {isService
+              ? "Type a title — we write the gig and design six flyer prompts."
+              : "Upload photos — we write the listing and design six banners."}
           </span>
         </span>
         <span className="shrink-0 text-[13px] font-semibold text-brand-700">Open</span>
@@ -336,7 +360,9 @@ export function AiListingPanel({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-[14px] font-bold text-ink-900">Generate with AI</p>
-          <p className="text-[11.5px] text-ink-500">Photos in, listing and banner prompts out.</p>
+          <p className="text-[11.5px] text-ink-500">
+            {isService ? "Title in, gig and flyer prompts out." : "Photos in, listing and banner prompts out."}
+          </p>
         </div>
         <button
           type="button"
@@ -354,7 +380,14 @@ export function AiListingPanel({
         {/* ── photos ─────────────────────────────────────────────────────── */}
         <div>
           <div className="mb-1.5 flex items-baseline justify-between gap-2">
-            <label className="nm-label !mb-0">Product photos</label>
+            <label className="nm-label !mb-0">
+              {isService ? "Service photos" : "Product photos"}{" "}
+              {isService ? (
+                <span className="font-normal text-ink-400">(optional)</span>
+              ) : (
+                <span className="text-red-600">(required)</span>
+              )}
+            </label>
             <span className="text-[11px] font-semibold tabular-nums text-ink-400">
               {photos.length}/{MAX_PHOTOS}
             </span>
@@ -396,7 +429,11 @@ export function AiListingPanel({
             >
               <span className="text-[20px]">📷</span>
               <span className="text-[13px] font-semibold text-ink-900">
-                {photos.length ? "Add more photos" : "Tap to choose photos"}
+                {photos.length
+                  ? "Add more photos"
+                  : isService
+                    ? "Add a photo of your work (optional)"
+                    : "Tap to choose photos"}
               </span>
               <span className="text-[11.5px] text-ink-400">
                 JPEG, PNG or WebP · up to 5 MB each · max {MAX_PHOTOS}
@@ -417,27 +454,54 @@ export function AiListingPanel({
           />
         </div>
 
-        {/* ── details (compulsory) ───────────────────────────────────────── */}
+        {/* ── title (compulsory) ─────────────────────────────────────────── */}
+        <div>
+          <label className="nm-label" htmlFor="ai-title">
+            Title <span className="text-red-600">(required)</span>
+          </label>
+          <input
+            id="ai-title"
+            className="nm-input"
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              if (err === "Add a title first.") setErr("");
+            }}
+            placeholder={
+              isService
+                ? "e.g. Logo design for a new bakery brand"
+                : "e.g. Handwoven rattan storage basket"
+            }
+            maxLength={120}
+          />
+          <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
+            {titleOk
+              ? "The AI expands this into the full listing."
+              : `Type at least ${MIN_TITLE_CHARS} characters to continue.`}
+          </p>
+        </div>
+
         <div>
           <label className="nm-label" htmlFor="ai-details">
-            Product details <span className="text-red-600">(required)</span>
+            Description <span className="font-normal text-ink-400">(optional)</span>
           </label>
           <textarea
             id="ai-details"
             rows={3}
             className="nm-input resize-y"
             value={details}
-            onChange={(e) => {
-              setDetails(e.target.value);
-              if (err === "Product details are required.") setErr("");
-            }}
-            placeholder="e.g. Handwoven rattan storage basket, 30cm, natural finish, handmade in Ghana"
+            onChange={(e) => setDetails(e.target.value)}
+            placeholder={
+              isService
+                ? "e.g. Logo creation — three concepts, two revision rounds, delivered in 5 days"
+                : "e.g. 30cm, natural finish, handmade in Ghana — anything the photos cannot show"
+            }
             maxLength={600}
           />
           <div className="mt-1 flex items-baseline justify-between gap-2">
             <p className="text-[11px] leading-relaxed text-ink-400">
-              {details.trim().length < MIN_DETAILS_CHARS
-                ? "Please describe your product to continue."
+              {isService
+                ? "Say what the gig is and what the buyer gets. Optional — the title alone is enough."
                 : "The AI uses this as the source of truth for anything the photos cannot show."}
             </p>
             <span className="shrink-0 text-[10.5px] tabular-nums text-ink-400">{details.length}/600</span>
@@ -452,7 +516,8 @@ export function AiListingPanel({
           {busy ? (
             <>
               <button type="button" disabled className="nm-btn-primary flex-1 !py-3">
-                <Spinner /> {slow ? "Still analysing…" : "Analysing your product…"}
+                <Spinner />{" "}
+                {slow ? "Still analysing…" : isService ? "Writing your gig…" : "Analysing your product…"}
               </button>
               <button type="button" onClick={cancel} className="nm-btn-ghost !px-4 !py-3">
                 Cancel
@@ -465,16 +530,18 @@ export function AiListingPanel({
               disabled={!canGenerate}
               className="nm-btn-primary flex-1 !py-3"
             >
-              {result ? "Analyse again" : "Analyse product"}
+              {result ? "Generate again" : isService ? "Generate gig" : "Analyse product"}
             </button>
           )}
         </div>
 
         {!canGenerate && !busy && (
           <p className="text-center text-[11px] leading-relaxed text-ink-400">
-            {photos.length === 0
-              ? "Add at least one photo to continue."
-              : "Please describe your product to continue."}
+            {!titleOk
+              ? "Add a title to continue."
+              : isService
+                ? "Add a title to continue."
+                : "Add at least one product photo to continue."}
           </p>
         )}
 

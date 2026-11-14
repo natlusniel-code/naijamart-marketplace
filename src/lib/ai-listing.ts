@@ -1,15 +1,24 @@
 /**
  * Product Listing Assistant — Gemini text + six banner prompts.
  *
- * ── The pipeline ────────────────────────────────────────────────────────────
- *  1. The seller uploads 1–6 photos and MUST type a description.
+ * ── The pipeline ────────────────────────────────────────────────────────
+ *  1. The seller types a TITLE. That alone is enough to generate.
+ *     A description is optional, and photos are optional for a service but
+ *     compulsory for a product.
  *  2. Every photo goes to the public `naijamart` bucket; public URLs come back.
- *  3. All photos + the typed description go to Gemini, which returns the
- *     listing copy and six banner art-direction prompts.
+ *  3. Title + description (when given) + photos (when given) go to Gemini,
+ *     which returns the listing copy and six banner art-direction prompts.
  *  4. The six prompts are shown to the seller and can be copied all at once
  *     with a single action — they are not rendered into images here.
  *
- * ── Why the key is in two pieces ───────────────────────────────────────────
+ * ── Two kinds, two prompt shapes ────────────────────────────────────────
+ * A PRODUCT listing and a SERVICE (gig) listing are not the same thing, so
+ * they do not get the same instruction. A product's six prompts describe one
+ * consistent product campaign; a service's six prompts describe a graphics-
+ * design GIG FLYER that carries the service name, the title and a short note.
+ * `buildPrompt()` branches on `kind` for exactly that reason.
+ *
+ * ── Why the key is in two pieces ────────────────────────────────────────
  * GitHub's push protection refuses any commit containing a literal Google
  * API key ("GCP API Key Bound to a Service Account"), so a single string
  * constant cannot be pushed to this repo at all. Splitting it keeps the value
@@ -47,7 +56,7 @@ const FALLBACK_MODEL = "gemini-flash-lite-latest";
 /**
  * How long to wait for one Gemini attempt.
  *
- * ── Why the primary gets a SHORT budget ────────────────────────────────────
+ * ── Why the primary gets a SHORT budget ─────────────────────────────────
  * `gemini-flash-latest` does not fail fast when it is overloaded — it accepts
  * the connection and then simply never answers. Measured on a real two-photo
  * upload: the primary sat silent for the full 60 s timeout, and only then did
@@ -75,8 +84,17 @@ export const MAX_EDGE = 1600;
 /** How many photos a listing may use. */
 export const MAX_PHOTOS = 6;
 
-/** Minimum characters of seller description before the button unlocks. */
-export const MIN_DETAILS_CHARS = 10;
+/**
+ * Minimum characters of a listing title before the button unlocks.
+ *
+ * The title is the one input that is always required — it is what the model
+ * is asked to expand. The description is optional for both kinds, and photos
+ * are optional for a service, so neither of those gates the button.
+ */
+export const MIN_TITLE_CHARS = 3;
+
+/** The two listing kinds the assistant writes for. */
+export type ListingKind = "product" | "service";
 
 /** Accepted input types. */
 export const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
@@ -159,17 +177,41 @@ export class AiListingError extends Error {
 /* ------------------------------------------------------------------ prompt */
 
 /**
- * The instruction sent with the photos.
+ * The instruction sent with the seller's inputs.
  *
- * The first block is the brief's prompt verbatim. The second block is the
- * landscape rule: without it the model happily returns a 9:16 "Story" and a
- * 1:1 "Social square", which cannot be shown in one even grid. Naming the
- * exact pixel size and ratio, and saying "all six", is what makes the six
- * prompts describe one frame.
+ * ── Why this branches on `kind` ─────────────────────────────────────────
+ * A product and a service need different copy AND different banner art
+ * direction, so one prompt cannot serve both:
+ *
+ *   PRODUCT  the six prompts must describe ONE product campaign with the
+ *            same product, palette, lighting and styling in every frame, so
+ *            the six images look like a set. The FIRST prompt must ask for
+ *            text to appear on that image (the hero carries the headline).
+ *
+ *   SERVICE  the six prompts must describe a graphics-design GIG FLYER for
+ *            the service being sold — the kind of flyer a designer posts to
+ *            advertise "logo design" or "plumbing service". Each prompt must
+ *            carry the service name, the listing title and a short note, and
+ *            the result must read as a flyer, not a product photo.
+ *
+ * ── Why the landscape rule is still here ────────────────────────────────
+ * Without it the model happily returns a 9:16 "Story" and a 1:1 "Social
+ * square", which cannot be shown in one even grid. Naming the exact pixel
+ * size and ratio, and saying "all six", is what makes the six prompts
+ * describe one frame.
  */
-function buildPrompt(details: string): string {
-  return `You are an expert ecommerce copywriter. You are given several photos of the same product and the seller's own description of it. Use ALL the photos together to understand the product accurately — its shape, material, colour, size, details and finish. The seller's description is the source of truth for facts you cannot see. Then return ONLY valid JSON in exactly this shape:
-{
+function buildPrompt({
+  kind,
+  title,
+  details,
+  hasPhotos,
+}: {
+  kind: ListingKind;
+  title: string;
+  details: string;
+  hasPhotos: boolean;
+}): string {
+  const shape = `{
   "title": "max 60 characters, SEO friendly",
   "shortDescription": "1-2 sentences",
   "longDescription": "3 short paragraphs separated by \\n\\n",
@@ -182,12 +224,64 @@ function buildPrompt(details: string): string {
     { "type": "Social square", "prompt": "..." },
     { "type": "Story", "prompt": "..." }
   ]
-}
-Each banner prompt must describe the product accurately using what you saw in the photos, and must specify: subject, background, lighting, composition, aspect ratio, and where empty space is left for text. Do not invent facts that are not visible in the photos or stated in the seller's description.
+}`;
 
-IMPORTANT — every banner is a fixed horizontal (landscape) frame of the same size: 1200x630 pixels, aspect ratio 1.91:1. All six banner prompts must describe that same landscape frame, must all state the same aspect ratio (1.91:1), and must never ask for a square, portrait or vertical crop. Leave clear empty space for text in the same region of every frame.
+  const landscape = `IMPORTANT — every banner is a fixed horizontal (landscape) frame of the same size: 1200x630 pixels, aspect ratio 1.91:1. All six banner prompts must describe that same landscape frame, must all state the same aspect ratio (1.91:1), and must never ask for a square, portrait or vertical crop. Leave clear empty space for text in the same region of every frame.`;
 
-Seller's product details: ${details.trim()}`;
+  const sellerInput = [
+    `Listing title: ${title.trim()}`,
+    details.trim() ? `Seller's description: ${details.trim()}` : "",
+    hasPhotos
+      ? "Photos of the item are attached — use them as the source of truth for what it looks like."
+      : "No photos were supplied — work only from the title and description above, and do not invent visual details you cannot justify.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (kind === "service") {
+    return `You are an expert marketplace copywriter and graphic designer. You are writing a listing for a SERVICE (a gig) on NaijaMart, a Nigerian marketplace. The seller may have supplied only a title, or a title plus a short description of the service, and may or may not have attached photos.
+
+Return ONLY valid JSON in exactly this shape:
+${shape}
+
+Write the listing copy for the SERVICE: what the seller does, who it is for, what the buyer receives, and why they should book it. Do not invent a price, a delivery time or a guarantee that the seller did not state.
+
+── The six banner prompts are GIG FLYERS ──
+Each of the six prompts must describe a graphics-design GIG FLYER advertising this service — the kind of promotional flyer a designer makes to sell "logo creation", "plumbing service", "event photography" and so on. Every prompt must:
+- describe a flyer layout (headline block, supporting text block, imagery or icon area, contact/CTA strip), not a plain product photograph;
+- state the SERVICE NAME and the LISTING TITLE as text that must appear on the flyer;
+- include a short supporting note line (a one-line benefit or offer) as text on the flyer;
+- specify the visual style, colour palette, typography feel, background and composition;
+- keep the same brand look across all six so they read as one flyer set in different formats;
+- leave the text areas clear and legible — the flyer must look finished, not like a photo with words dropped on it.
+
+The first prompt (Hero) must be the primary flyer: the service name and title large and unmistakable.
+
+${landscape}
+
+${sellerInput}`;
+  }
+
+  return `You are an expert ecommerce copywriter. You are writing a listing for a PRODUCT on NaijaMart, a Nigerian marketplace. You are given the seller's title, an optional description, and optionally several photos of the same product. Use ALL the photos together to understand the product accurately — its shape, material, colour, size, details and finish. The seller's description is the source of truth for facts you cannot see. Then return ONLY valid JSON in exactly this shape:
+${shape}
+
+Each banner prompt must describe the product accurately using what you saw in the photos (or the title and description when there are none), and must specify: subject, background, lighting, composition, aspect ratio, and where empty space is left for text. Do not invent facts that are not visible in the photos or stated in the seller's description.
+
+── The six banner prompts must be ONE consistent set ──
+All six prompts describe the SAME product in the SAME visual world, so the six images look like a campaign rather than six unrelated pictures. Every prompt must repeat the same:
+- product appearance (shape, colour, material, finish, any visible branding);
+- colour palette and background treatment;
+- lighting setup and mood;
+- styling and props (or explicitly "no props");
+- photographic style (e.g. clean studio, warm lifestyle, flat lay).
+Only the framing, the angle and the purpose of each slot may change.
+
+── The FIRST prompt must call for text on the image ──
+The Hero prompt must explicitly ask for text to appear ON that image: the product name or the listing title as a headline, set legibly in the empty space, in a style that matches the palette. The other five prompts may leave their text space empty.
+
+${landscape}
+
+${sellerInput}`;
 }
 
 /* ------------------------------------------------------------- image prep */
@@ -416,7 +510,7 @@ function httpError(status: number, detail: string): AiListingError {
 /**
  * Call the primary model, then the fallback on a timeout, 503 or 429.
  *
- * ── Why 429 IS retried here ────────────────────────────────────────────────
+ * ── Why 429 IS retried here ─────────────────────────────────────────────
  * Quota is per MODEL, not per key. `gemini-flash-latest` can be exhausted
  * while `gemini-flash-lite-latest` still has free quota — measured on this
  * key: the primary answered 429 in 0.6 s while the lite model answered the
@@ -516,23 +610,47 @@ export function parseListing(raw: string): GeneratedListing {
 
 /* ------------------------------------------------------------------- api */
 
-/** Generate a whole listing from one or more photos plus the seller's description. */
+/**
+ * Generate a whole listing from a title, an optional description and any
+ * photos the seller supplied.
+ *
+ * ── What is required, and why ────────────────────────────────────────────
+ * The TITLE is the only compulsory input: it is what the model expands, and
+ * a seller who knows what they are selling can always type it. The
+ * description is optional for both kinds. Photos are optional for a service
+ * (a plumber has no product shot) but COMPULSORY for a product — a product
+ * listing with no picture is not a listing a buyer can trust, and the
+ * product prompt's whole job is to read the item from its photos.
+ */
 export async function generateListing({
-  images,
+  kind,
+  title,
   details,
+  images,
   signal,
 }: {
+  kind: ListingKind;
+  title: string;
+  details?: string;
   images: { base64: string; mimeType: string }[];
-  details: string;
   signal?: AbortSignal;
 }): Promise<GeneratedListing> {
-  if (!images.length) {
+  if (title.trim().length < MIN_TITLE_CHARS) {
+    throw new AiListingError("bad_json", "Add a title first.");
+  }
+  if (kind === "product" && !images.length) {
     throw new AiListingError("no_image", "Add at least one product photo first.");
   }
-  if (details.trim().length < MIN_DETAILS_CHARS) {
-    throw new AiListingError("bad_json", "Product details are required.");
-  }
-  const raw = await callGemini({ images, prompt: buildPrompt(details), signal });
+  const raw = await callGemini({
+    images,
+    prompt: buildPrompt({
+      kind,
+      title,
+      details: details ?? "",
+      hasPhotos: images.length > 0,
+    }),
+    signal,
+  });
   return parseListing(raw);
 }
 
@@ -548,41 +666,48 @@ export type RegenerateField = "title" | "shortDescription" | "longDescription" |
  */
 export async function regenerateField({
   field,
+  kind,
+  title,
   images,
   details,
   context,
   signal,
 }: {
   field: RegenerateField;
+  kind: ListingKind;
+  title: string;
   images: { base64: string; mimeType: string }[];
-  details: string;
+  details?: string;
   context: GeneratedListing;
   signal?: AbortSignal;
 }): Promise<string | string[]> {
   const shape =
     field === "tags" ? `{"value": ["10-15 lowercase keywords"]}` : `{"value": "the new text"}`;
 
+  const noun = kind === "service" ? "service" : "product";
+
   const what =
     field === "title"
-      ? "a different product title, max 60 characters, SEO friendly"
+      ? `a different ${noun} title, max 60 characters, SEO friendly`
       : field === "shortDescription"
         ? "a different short description, 1-2 sentences"
         : field === "longDescription"
           ? "a different long description, 3 short paragraphs separated by \\n\\n, benefit-led"
           : "a different set of 10-15 lowercase search keywords";
 
-  const prompt = `You are an expert ecommerce copywriter. Look at these product photos and the seller's description, then write ${what}.
+  const prompt = `You are an expert marketplace copywriter. Write ${what} for this ${noun} listing.
 
 The listing already says:
 - Title: ${context.title}
 - Short description: ${context.shortDescription}
 - Tags: ${context.tags.join(", ")}
 
-Keep it consistent with that listing but do not repeat it word for word. Do not invent facts that are not visible in the photos or stated in the seller's description.
+Keep it consistent with that listing but do not repeat it word for word. Do not invent facts that are not stated by the seller or visible in the photos.
 
 Return ONLY valid JSON in exactly this shape: ${shape}
 
-Seller's product details: ${details.trim()}`;
+Listing title: ${title.trim()}
+${details?.trim() ? `Seller's description: ${details.trim()}` : "The seller gave no description."}`;
 
   const raw = await callGemini({ images, prompt, signal });
   const cleaned = raw

@@ -230,20 +230,23 @@ export function ListingForm({
       {/* ---------------------------------------------------------------
           Product Listing Assistant.
 
-          Sits above the form because it FILLS the form: the seller uploads a
-          photo, gets copy back, and presses "Use this in my listing" to drop
-          the title, description and tags into the fields below. It never
-          navigates away, so a half-typed price or stock count survives.
+          Sits above the form because it FILLS the form: the seller types a
+          title (and optionally a description and photos), gets copy back,
+          and presses "Use this in my listing" to drop the title, description
+          and tags into the fields below. It never navigates away, so a
+          half-typed price or stock count survives.
 
-          Rendered for products only. A service is priced and described
-          differently (plans, service area, home visit), and the assistant's
-          product-shaped output would fight the form rather than help it.
+          Rendered for BOTH products and services. `kind` is passed through
+          so the assistant writes the right thing: a product campaign with
+          consistent banners for a product, a gig flyer for a service. The
+          input rules differ too — a product needs a photo, a service does
+          not — and the panel enforces that from `kind`.
          --------------------------------------------------------------- */}
-      {type === "product" && (
-        aiListingEnabled ? (
+      {aiListingEnabled ? (
         <AiListingPanel
           shopId={shopId}
           listingId={listing?.id}
+          kind={type}
           onApply={({ title, description, tags: aiTags }) => {
             setForm((f) => ({ ...f, title, description }));
             // Merge rather than replace: a seller may have typed tags before
@@ -259,27 +262,28 @@ export function ListingForm({
             setErr("");
           }}
         />
-        ) : (
-          /* The assistant is a Premium feature. A Basic seller sees what it
-             would do and where to upgrade, rather than a button that fails. */
-          <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-[var(--line)] bg-slate-50 px-3 py-2.5">
-            <span className="mt-0.5 text-[14px]" aria-hidden>✨</span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[12.5px] font-bold text-ink-900">
-                AI listing assistant is a Premium feature
-              </p>
-              <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-500">
-                Upload a photo and Premium writes the title, description and tags for you.
-              </p>
-              <a
-                href="/seller/subscription?upgrade=1"
-                className="mt-1.5 inline-block text-[11.5px] font-bold text-brand-600 hover:underline"
-              >
-                See Premium →
-              </a>
-            </div>
+      ) : (
+        /* The assistant is a Premium feature. A Basic seller sees what it
+           would do and where to upgrade, rather than a button that fails. */
+        <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-[var(--line)] bg-slate-50 px-3 py-2.5">
+          <span className="mt-0.5 text-[14px]" aria-hidden>✨</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[12.5px] font-bold text-ink-900">
+              AI listing assistant is a Premium feature
+            </p>
+            <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-500">
+              {type === "service"
+                ? "Type a title and Premium writes the gig and designs six flyer prompts for you."
+                : "Upload a photo and Premium writes the title, description and tags for you."}
+            </p>
+            <a
+              href="/seller/subscription?upgrade=1"
+              className="mt-1.5 inline-block text-[11.5px] font-bold text-brand-600 hover:underline"
+            >
+              See Premium →
+            </a>
           </div>
-        )
+        </div>
       )}
 
       <Card className="p-4">
