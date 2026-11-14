@@ -125,6 +125,17 @@ export default async function ProfilePage() {
           <p className="text-[13.5px] font-semibold text-ink-900">Wishlist</p>
           <span className="text-ink-400">→</span>
         </Link>
+        {/* Ask Support — the AI assistant that answers from this buyer's own
+            orders. It sits in settings because that is where a shopper looks
+            for help with their account; the Help page keeps the human
+            WhatsApp route for anything the assistant cannot settle. */}
+        <Link href="/profile/support" className="flex items-center justify-between px-4 py-3 hover:bg-slate-50">
+          <div>
+            <p className="text-[13.5px] font-semibold text-ink-900">Ask Support</p>
+            <p className="text-[11.5px] text-ink-500">Ask about your orders, delivery or payments</p>
+          </div>
+          <span className="text-ink-400">→</span>
+        </Link>
         {/* Renders only when the app is NOT installed — a user who already has
             it sees no "Install app" row at all. See install-app-row.tsx. */}
         <InstallAppRow />

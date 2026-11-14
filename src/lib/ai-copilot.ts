@@ -22,7 +22,7 @@
  */
 
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { aiJson, aiText, aiTry, clip } from "@/lib/ai";
 
 export type CopilotTool =
@@ -102,7 +102,17 @@ async function runTool(
   name: CopilotTool,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  const supabase = createClient();
+  // ── Why the service role, not the session client ──────────────────────
+  // This used to be `createClient()` from `@/lib/supabase/server`, which is
+  // the ANON key with RLS in effect. A server action has no `auth.uid()`,
+  // so `profiles_select` — `(id = auth.uid()) OR is_admin()` — matched
+  // nothing and every count came back 0. The copilot then told the admin
+  // "we have 0 buyers" while the dashboard, which uses this same admin
+  // client, correctly showed 8. The copilot is admin-only (its caller
+  // `askAdminCopilot` is gated on `hasAdminKey`), so reading with the
+  // service role is the correct scope — and it is what makes the answer
+  // agree with the page the admin is looking at.
+  const supabase = createAdminClient();
 
   switch (name) {
     case "platform_overview": {
