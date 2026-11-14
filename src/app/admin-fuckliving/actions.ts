@@ -223,7 +223,11 @@ export async function verifyPayment(
         .eq("id", pay.shop_id);
     }
 
-    refreshAdmin();
+    // A verified subscription changes what the SELLER sees, not just the
+    // admin. Without these two paths the seller's subscription page kept
+    // serving its cached render and still showed the old plan/status until
+    // the cache happened to expire.
+    refreshAdmin(["/seller/subscription", "/seller/analytics", "/seller"]);
     return { ok: true };
   } catch (error) {
     return fail(error);

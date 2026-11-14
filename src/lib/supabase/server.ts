@@ -69,9 +69,18 @@ export async function getSession() {
     .eq("user_id", user.id)
     .maybeSingle();
 
+  // ── This column list is explicit, and that is a footgun ────────────────
+  // A column that is not named here is simply absent from `session.shop` —
+  // it reads as `undefined`, not as an error. That is exactly how the
+  // subscription page came to show "Basic" to a Premium seller: `plan` was
+  // missing from this list, so `subscriptionState()` saw `undefined` and
+  // fell back to its "basic" default. The database was right the whole time.
+  //
+  // If you add a column that any page reads off `session.shop`, add it here
+  // too. `plan` is required by `subscriptionState()` (src/lib/plan-gate.ts).
   const { data: shop } = await supabase
     .from("shops")
-    .select("id,name,slug,status,verified,city,state,subscription_status,subscription_expires_at,description,logo_url,banner_url,category,kind,delivery_fee,free_delivery_threshold,pickup_available,bank_name,bank_account_number,bank_account_name,nin_or_cac,documents,rating_avg,rating_count,review_note,created_at")
+    .select("id,name,slug,status,verified,city,state,plan,subscription_status,subscription_expires_at,description,logo_url,banner_url,category,kind,delivery_fee,free_delivery_threshold,pickup_available,bank_name,bank_account_number,bank_account_name,nin_or_cac,documents,rating_avg,rating_count,review_note,created_at")
     .eq("owner_id", user.id)
     .maybeSingle();
 

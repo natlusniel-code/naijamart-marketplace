@@ -38,9 +38,13 @@ export function AiReplySuggestion({
   /** Called once the seller dismisses, so the parent can stop showing it. */
   onDismissed?: () => void;
 }) {
-  const [suggestion, setSuggestion] = useState<{ id: string; body: string; mode: string } | null>(
-    null,
-  );
+  const [suggestion, setSuggestion] = useState<{
+    id: string;
+    body: string;
+    mode: string;
+    status: string;
+    error: string | null;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -54,17 +58,30 @@ export function AiReplySuggestion({
     let cancelled = false;
 
     async function load() {
+      // A `failed` row is shown too: it carries the reason the AI could not
+      // write a draft, which is the difference between "the AI is broken"
+      // and "the AI had nothing to say". Without it a failure was silence.
       const { data } = await supabase
         .from("ai_reply_suggestions")
-        .select("id,body,mode")
+        .select("id,body,mode,status,error")
         .eq("chat_id", chatId)
-        .eq("status", "pending")
+        .in("status", ["pending", "failed"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (cancelled) return;
-      setSuggestion(data ? { id: data.id, body: data.body, mode: data.mode } : null);
+      setSuggestion(
+        data
+          ? {
+              id: data.id,
+              body: data.body ?? "",
+              mode: data.mode,
+              status: data.status,
+              error: (data as any).error ?? null,
+            }
+          : null,
+      );
       setLoading(false);
     }
 
@@ -102,6 +119,33 @@ export function AiReplySuggestion({
 
   if (!enabled || loading) return null;
   if (!suggestion) return null;
+
+  // ── The AI could not write a draft ──────────────────────────────────────
+  // Shown instead of nothing. The seller gets the reason and a way to clear
+  // it; the buyer's message is already saved either way.
+  if (suggestion.status === "failed") {
+    return (
+      <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <p className="flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-wide text-amber-800">
+            <span aria-hidden>✨</span> AI reply unavailable
+          </p>
+          <button
+            onClick={dismiss}
+            disabled={busy}
+            className="shrink-0 text-[10.5px] font-semibold text-amber-700 hover:text-amber-900"
+            aria-label="Dismiss AI error"
+          >
+            {busy ? <Spinner /> : "Dismiss"}
+          </button>
+        </div>
+        <p className="mt-1 text-[12px] leading-relaxed text-amber-900">
+          {suggestion.error ??
+            "The AI could not write a reply for this message. Your buyer's message is saved — reply manually or try again."}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-2 rounded-xl border border-brand-200 bg-brand-50/70 p-2.5">

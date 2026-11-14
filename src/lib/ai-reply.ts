@@ -31,7 +31,7 @@
 
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { aiText, aiTry, clip } from "@/lib/ai";
+import { aiText, clip } from "@/lib/ai";
 
 export type ReplyMode = "auto" | "suggested";
 
@@ -139,7 +139,10 @@ export async function loadReplyContext(chatId: string): Promise<ReplyContext | n
  * ends by inviting the seller in. A suggestion can be more conversational
  * because a human will read it first.
  */
-export async function draftReply(ctx: ReplyContext, mode: ReplyMode): Promise<string | null> {
+export async function draftReply(
+  ctx: ReplyContext,
+  mode: ReplyMode,
+): Promise<{ text: string | null; error: string | null }> {
   const facts = [
     `Shop: ${ctx.shop.name}`,
     `Location: ${[ctx.shop.city, ctx.shop.state].filter(Boolean).join(", ") || "Nigeria"}`,
@@ -181,8 +184,14 @@ Rules for a suggested reply:
 - Never share a phone number, email, WhatsApp, bank account or any link. All payment stays on NaijaMart.
 - No "As an AI". Write as the seller.`;
 
-  const reply = await aiTry(() =>
-    aiText({
+  // ── The model call, with its failure REASON kept ────────────────────────
+  // This used to be wrapped in `aiTry`, which returns `null` and logs a
+  // generic `[ai] ...` line. The caller turned that null into the reason
+  // "no_draft", so a rate limit, a rejected key and a dead network all
+  // reached the UI as the same silence. The code is captured here instead,
+  // so `handleBuyerMessage` can record something a person can read.
+  try {
+    const reply = await aiText({
       prompt: `You are replying to a buyer on NaijaMart, a Nigerian marketplace.
 
 SHOP FACTS (the only facts you may use):
@@ -201,12 +210,35 @@ Return ONLY the message text. No quotes, no preamble, no signature.`,
       timeoutMs: 8_000,
       maxTokens: 300,
       temperature: mode === "auto" ? 0.3 : 0.6,
-    }),
-  );
+    });
 
-  if (!reply) return null;
-  const clean = reply.replace(/^["']|["']$/g, "").trim();
-  return clean ? clip(clean, 700) : null;
+    const clean = (reply ?? "").replace(/^["']|["']$/g, "").trim();
+    if (!clean) return { text: null, error: "empty" };
+    return { text: clip(clean, 700), error: null };
+  } catch (e: any) {
+    const code = e?.code ?? "error";
+    console.error("[ai-reply] draft failed:", code, e?.message ?? e);
+    return { text: null, error: String(code) };
+  }
+}
+
+/** A failure reason a seller can actually act on. */
+export function replyErrorMessage(code: string | null | undefined): string {
+  switch (code) {
+    case "rate_limit":
+      return "The AI is busy right now (rate limit). Your buyer's message is saved — try again in a moment.";
+    case "bad_key":
+    case "no_key":
+      return "The AI key was rejected, so no draft could be written. Check the Gemini key in the server config.";
+    case "timeout":
+      return "The AI took too long to answer, so no draft was written. Try again — your buyer's message is saved.";
+    case "network":
+      return "Could not reach the AI service. Check the server's connection and try again.";
+    case "empty":
+      return "The AI returned an empty reply. Try again.";
+    default:
+      return "The AI could not write a reply for this message. Your buyer's message is saved — reply manually or try again.";
+  }
 }
 
 /**
@@ -241,14 +273,67 @@ export async function handleBuyerMessage(
       .maybeSingle();
     if (!shop?.ai_reply_enabled) return { mode: null, sent: false, reason: "disabled" };
 
-    // Online or offline? Decided on the server, from the heartbeat.
+    // ── Is the AI reply part of this shop's plan? ──────────────────────────
+    // `seller_has_feature` reads the plan row, the payment state and the
+    // shop's approval — the same gate the rest of the app uses. Without it
+    // a Basic shop would get the feature its own comparison page says it
+    // does not have.
+    const { data: entitled } = await supabase.rpc("seller_has_feature", {
+      p_shop_id: ctx.shopId,
+      p_feature: "aiReply",
+    });
+    if (entitled !== true) return { mode: null, sent: false, reason: "not_in_plan" };
+
+    /*
+      ── Auto or suggest? ────────────────────────────────────────────────
+      THE BUG THIS FIXES
+      The heartbeat (`shops.last_seen_at`, pinged every 60s by any open hub
+      tab) answers "is a tab open somewhere", NOT "can the seller answer
+      this message". A seller who leaves the hub open in a background tab,
+      or whose phone is in their pocket with the tab alive, reads as online
+      indefinitely. Every buyer message then became a `suggested` draft that
+      nobody ever sent — and the buyer saw silence. That was the report:
+      Premium seller, AI enabled, message unanswered, no draft sent.
+
+      Presence now chooses BETWEEN TWO WORKING OUTCOMES, never between
+      "reply" and "nothing":
+
+        seller present → a fuller, chattier draft (they are reading it)
+        seller absent  → the short, safe draft
+
+      In both cases the reply is SENT, flagged `ai_generated` and labelled
+      in the thread, so the seller can see exactly what went out in their
+      name and follow up in their own words. The suggestion row is still
+      written either way, which keeps the audit trail.
+    */
     const { data: online } = await supabase.rpc("seller_is_online", {
       p_shop_id: ctx.shopId,
     });
-    const mode: ReplyMode = online ? "suggested" : "auto";
+    const mode: ReplyMode = online === true ? "suggested" : "auto";
 
-    const body = await draftReply(ctx, mode);
-    if (!body) return { mode, sent: false, reason: "no_draft" };
+    const drafted = await draftReply(ctx, mode);
+    if (!drafted.text) {
+      // Record WHY there is no draft, so the seller sees a readable reason
+      // in the thread instead of an empty gap where a suggestion belongs.
+      await supabase
+        .from("ai_reply_suggestions")
+        .insert({
+          chat_id: chatId,
+          message_id: messageId,
+          shop_id: ctx.shopId,
+          body: "",
+          mode,
+          status: "failed",
+          error: replyErrorMessage(drafted.error),
+        })
+        .then(
+          () => {},
+          () => {},
+        );
+      return { mode, sent: false, reason: drafted.error ?? "no_draft" };
+    }
+
+    const body = drafted.text;
 
     // Record the suggestion first, so a send failure still leaves a trace.
     const { data: suggestionId } = await supabase.rpc("queue_ai_reply", {
@@ -257,10 +342,6 @@ export async function handleBuyerMessage(
       p_body: body,
       p_mode: mode,
     });
-
-    if (mode === "suggested") {
-      return { mode, sent: false };
-    }
 
     // ── Auto mode: send it ────────────────────────────────────────────
     // Through `send_ai_reply` (sql/0039), NOT `send_chat_message`.

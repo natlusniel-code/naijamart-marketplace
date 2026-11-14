@@ -35,6 +35,29 @@ export default async function SubscriptionPage({ searchParams }: { searchParams:
   const settings = await getSettings();
   const supabase = createClient();
 
+  // ── Read the plan from the row, not from the session snapshot ──────────
+  // `session.shop` is built from an explicit column list in
+  // src/lib/supabase/server.ts. When `plan` was missing from that list the
+  // page silently showed "Basic" to a Premium seller, because
+  // `subscriptionState()` treats an absent plan as basic. Reading the three
+  // billing columns here makes this page independent of that list, and
+  // guarantees it reflects the row as it is right now.
+  const { data: billing } = await supabase
+    .from("shops")
+    .select("plan,subscription_status,subscription_expires_at,status,verified")
+    .eq("id", shop.id)
+    .maybeSingle();
+
+  const billingShop = {
+    ...shop,
+    plan: billing?.plan ?? shop.plan ?? null,
+    subscription_status: billing?.subscription_status ?? shop.subscription_status ?? null,
+    subscription_expires_at:
+      billing?.subscription_expires_at ?? shop.subscription_expires_at ?? null,
+    status: billing?.status ?? shop.status ?? null,
+    verified: billing?.verified ?? shop.verified ?? null,
+  };
+
   const [plans, { data: payments }] = await Promise.all([
     getSellerPlans(),
     supabase
@@ -45,7 +68,7 @@ export default async function SubscriptionPage({ searchParams }: { searchParams:
       .order("created_at", { ascending: false }),
   ]);
 
-  const state = subscriptionState(shop);
+  const state = subscriptionState(billingShop);
   const currentPlan = plans.find((p) => p.id === state.plan) ?? plans[0];
   const latest = payments?.[0];
 

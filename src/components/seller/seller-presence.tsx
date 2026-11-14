@@ -34,6 +34,18 @@ export function SellerPresence() {
 
     async function ping() {
       if (stopped) return;
+      // ── Only a VISIBLE tab counts as presence ──────────────────────────
+      // This used to ping unconditionally, including from a backgrounded
+      // tab. Browsers throttle background timers to roughly once a minute
+      // rather than stopping them, so a seller who left the hub open in
+      // another tab — or whose phone was in their pocket with the tab
+      // alive — kept `last_seen_at` fresh forever. `seller_is_online` then
+      // said "online" for days, and every buyer message became a
+      // `suggested` draft nobody sent. That was the unanswered-chat bug.
+      //
+      // A hidden tab is not a seller at their desk. Skipping the ping lets
+      // the 3-minute window lapse, which is the honest answer.
+      if (document.visibilityState !== "visible") return;
       // Fire and forget: a failed heartbeat is not worth surfacing.
       await supabase.rpc("touch_seller_presence").then(
         () => {},
