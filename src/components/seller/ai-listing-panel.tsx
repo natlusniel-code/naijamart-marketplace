@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Spinner, Alert, Badge } from "@/components/ui";
+import { PRODUCT_FRAME_FIT } from "@/lib/image-frame";
 import {
   ACCEPTED_TYPES,
   BANNER_HEIGHT,
@@ -325,7 +326,7 @@ export function AiListingPanel({
               <img
                 src={prepared.dataUrl}
                 alt="Selected product"
-                className="h-20 w-20 shrink-0 rounded-xl border border-[var(--line)] object-cover"
+                className={`h-20 w-20 shrink-0 rounded-xl border border-[var(--line)] ${PRODUCT_FRAME_FIT}`}
               />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[12.5px] font-semibold text-ink-900">{file?.name}</p>
