@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getSession, createClient } from "@/lib/supabase/server";
 import { ChatThread } from "@/components/chat-thread";
+import { shopHasFeature } from "@/lib/plan-gate";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Chat" };
@@ -61,11 +62,33 @@ export default async function SellerChatPage({ params }: { params: { id: string 
       .order("created_at", { ascending: true }),
   ]);
 
+  // The seller's presence, read on the server so the headline is correct on
+  // the first paint instead of flashing "Offline" until the client polls.
+  const { data: sellerOnline } = c.shop_id
+    ? await supabase.rpc("seller_is_online", { p_shop_id: c.shop_id })
+    : { data: false };
+
+  /*
+    ── The AI reply is Premium-only ──────────────────────────────────────
+    `shops.ai_reply_enabled` is the seller's own switch; it says nothing
+    about what they pay for. A Basic shop that once had the feature on
+    would otherwise still see the suggestion panel and the AI would still
+    be asked for a draft. The plan gate is the authority, and it is the
+    same `seller_has_feature` check the server-side reply path uses — so
+    the panel and the endpoint can never disagree.
+  */
+  const aiReplyEntitled = c.shop_id
+    ? await shopHasFeature(c.shop_id, "aiReply")
+    : false;
+
   return (
     <ChatThread
       chatId={params.id}
       meId={uid}
       amSeller={amSeller}
+      otherUserId={otherId}
+      shopId={c.shop_id ?? null}
+      sellerOnlineSeed={sellerOnline === true}
       otherName={other?.full_name ?? "Member"}
       otherAvatar={other?.avatar_url ?? null}
       shopName={c.shops?.name ?? null}
@@ -87,7 +110,7 @@ export default async function SellerChatPage({ params }: { params: { id: string 
       initialMessages={messages ?? []}
       initialOffers={(offers ?? []) as any}
       basePath="/seller/chats"
-      aiReplyEnabled={c.shops?.ai_reply_enabled !== false}
+      aiReplyEnabled={aiReplyEntitled && c.shops?.ai_reply_enabled !== false}
     />
   );
 }

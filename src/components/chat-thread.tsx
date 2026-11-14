@@ -10,6 +10,7 @@ import { Avatar, Badge, Spinner, OrderStatusChip } from "@/components/ui";
 import { canGeolocate, coordsLabel, geolocationErrorMessage, getCurrentCoords } from "@/lib/geo";
 import { MapPopup } from "@/components/map-popup";
 import { AiReplySuggestion } from "@/components/seller/ai-reply-suggestion";
+import { PresenceHeadline, TypingDots, useChatPresence } from "@/components/chat-live";
 
 type Msg = {
   id: string;
@@ -82,6 +83,9 @@ export function ChatThread({
   initialDraft,
   packageIds,
   aiReplyEnabled = true,
+  shopId = null,
+  sellerOnlineSeed = false,
+  otherUserId,
 }: {
   chatId: string;
   meId: string;
@@ -139,6 +143,18 @@ export function ChatThread({
    * out of their shop and nothing appears.
    */
   aiReplyEnabled?: boolean;
+  /**
+   * The shop behind this thread. Used to ask `seller_is_online` for the
+   * buyer's online/offline headline; null when the chat has no shop.
+   */
+  shopId?: string | null;
+  /** `seller_is_online(shop_id)` read on the server, for the first paint. */
+  sellerOnlineSeed?: boolean;
+  /**
+   * The user id of the other party. Presence and typing are keyed on it, so
+   * the thread knows whose dots to show and whose status to report.
+   */
+  otherUserId: string;
 }) {
   const router = useRouter();
   /**
@@ -195,6 +211,35 @@ export function ChatThread({
   const [openPin, setOpenPin] = useState<{ lat: number; lng: number; label?: string | null } | null>(null);
   const top = useRef<HTMLDivElement | null>(null);
   const box = useRef<HTMLTextAreaElement | null>(null);
+
+  /**
+   * Live presence and typing.
+   *
+   * `otherId` is whoever is on the far side of this thread — the buyer for
+   * a seller, the seller for a buyer. The hook decides what "online" means
+   * for each: a seller is online when their hub heartbeat says so, a buyer
+   * when they are in this thread.
+   */
+  const { otherOnline, otherTyping, notifyTyping, stopTyping, clearOtherTyping } =
+    useChatPresence({
+      chatId,
+      meId,
+      otherId: otherUserId,
+      amSeller,
+      shopId,
+      sellerOnlineSeed,
+    });
+
+  /**
+   * The AI is composing.
+   *
+   * The buyer's browser is what asks for the reply, so it knows the moment
+   * the request leaves and the moment the reply lands. Showing the dots for
+   * that window is the honest signal: something is being written, and it is
+   * not the seller.
+   */
+  const [aiThinking, setAiThinking] = useState(false);
+  const aiTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
    * Grow the composer to fit what is being typed.
@@ -289,6 +334,11 @@ export function ChatThread({
         { event: "INSERT", schema: "public", table: "messages", filter: `chat_id=eq.${chatId}` },
         (payload) => {
           const m = payload.new as Msg;
+          // A message arrived, so nobody is composing any more — clear the
+          // other side's dots and the AI's, whichever was showing.
+          clearOtherTyping();
+          setAiThinking(false);
+          if (aiTimer.current) clearTimeout(aiTimer.current);
           setMessages((prev) => {
             if (prev.some((x) => x.id === m.id)) return prev;
             // Drop the optimistic twin, matched by sender + payload because
@@ -329,7 +379,7 @@ export function ChatThread({
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [chatId, router]);
+  }, [chatId, router, clearOtherTyping]);
 
   /* ------------------------------------------------------------------
    * Read receipts. Opening the chat (or receiving while it is open) marks
@@ -391,25 +441,44 @@ export function ChatThread({
       const saved = result.message;
       setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
       setText("");
+      // The message is out, so the other side's dots must go at once.
+      stopTyping();
 
       /*
-        ── AI reply trigger ────────────────────────────────────────
+        ── AI reply trigger ──────────────────────────────────────────────
         The BUYER's message is what should wake the seller's AI: a
         seller who is offline cannot trigger anything, and the whole
         point is that the reply happens when they are not there.
 
-        Deliberately not awaited and deliberately not error-handled:
-        the message is already saved, the buyer's bubble is already on
-        screen, and a broken AI must not look like a broken chat. The
-        endpoint decides auto-vs-suggest from the seller's presence and
-        does the right thing either way.
+        The endpoint decides auto-vs-suggest from the seller's presence.
+        While the seller is online it stores a draft and sends nothing;
+        while they are away it sends the reply. Either way the buyer's
+        bubble is already on screen, so a slow or broken AI never looks
+        like a broken chat.
+
+        The dots are shown for the window the request is in flight — that
+        is the only honest "someone is composing" signal the buyer has,
+        and it is cleared the moment the reply lands (the realtime INSERT
+        handler) or the request settles.
       */
-      if (!amSeller) {
+      if (!amSeller && aiReplyEnabled) {
+        setAiThinking(true);
+        if (aiTimer.current) clearTimeout(aiTimer.current);
+        // A hard ceiling: if the endpoint never answers, the dots must not
+        // dance forever. 20s is longer than the route's own 8s model
+        // timeout plus overhead.
+        aiTimer.current = setTimeout(() => setAiThinking(false), 20_000);
+
         void fetch("/api/ai/reply", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ chatId, messageId: saved.id }),
-        }).catch(() => {});
+        })
+          .catch(() => {})
+          .finally(() => {
+            if (aiTimer.current) clearTimeout(aiTimer.current);
+            setAiThinking(false);
+          });
       }
     }
   }
@@ -627,7 +696,13 @@ export function ChatThread({
         <Avatar name={amSeller ? otherName : (shopName ?? otherName)} src={amSeller ? otherAvatar : shopLogo} size={34} />
         <div className="min-w-0">
           <p className="truncate text-[13.5px] font-bold text-ink-900">{amSeller ? otherName : (shopName ?? otherName)}</p>
-          <p className="text-[11px] text-ink-400">{amSeller ? "Buyer" : "Seller"}</p>
+          {/* The role label stays; the online/offline headline sits beside
+              it. Green "Online", black "Offline", updated live. */}
+          <div className="flex items-center gap-1.5">
+            <p className="text-[11px] text-ink-400">{amSeller ? "Buyer" : "Seller"}</p>
+            <span aria-hidden className="text-[11px] text-ink-300">·</span>
+            <PresenceHeadline online={otherOnline} />
+          </div>
         </div>
         {order && (
           <Link
@@ -796,6 +871,22 @@ export function ChatThread({
         ))}
         <div ref={top} />
       </div>
+      )}
+
+      {/* Typing indicator — three dancing dots under the conversation.
+          Shown for the other party composing, and for the AI while the
+          buyer's reply request is in flight. Rendered outside the scroll
+          area so it never pushes the thread or hides behind the composer. */}
+      {tab === "chat" && (otherTyping || aiThinking) && (
+        <TypingDots
+          label={
+            aiThinking
+              ? "Seller's assistant is typing…"
+              : amSeller
+                ? `${otherName} is typing…`
+                : `${shopName ?? otherName} is typing…`
+          }
+        />
       )}
 
       {blocked && (
@@ -987,7 +1078,12 @@ export function ChatThread({
       <form
         onSubmit={send}
         className="sticky bottom-0 z-20 -mx-1 flex items-end gap-1.5 border-t border-[var(--line)] bg-white/95 px-1 pb-1 pt-2 backdrop-blur"
-        style={{ marginBottom: "var(--nm-kb, 0px)" }}
+        style={{
+          // The keyboard lifts the composer by exactly its own height
+          // (`--nm-kb`, set from the visual viewport). The safe-area inset
+          // keeps it clear of the home indicator on a notched phone.
+          marginBottom: "calc(var(--nm-kb, 0px) + env(safe-area-inset-bottom, 0px))",
+        }}
       >
         <label className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-xl text-ink-400 hover:bg-slate-50 hover:text-brand-600">
           {uploading ? <Spinner className="!h-4 !w-4" /> : "📎"}
@@ -1029,7 +1125,13 @@ export function ChatThread({
           className="nm-input max-h-[40vh] min-h-[42px] flex-1 resize-none !py-2.5 leading-relaxed"
           placeholder="Message…"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            // Tell the other side we are composing. Throttled inside the
+            // hook, so this is safe to call on every keystroke.
+            if (e.target.value.trim()) notifyTyping();
+            else stopTyping();
+          }}
           onKeyDown={(e) => {
             // Enter sends; Shift+Enter is a new line. On a phone the return
             // key inserts a line instead, because there is a Send button.

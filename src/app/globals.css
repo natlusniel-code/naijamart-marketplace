@@ -120,6 +120,36 @@ body {
 }
 .nm-rise { animation: nm-rise 0.35s ease both; }
 
+/* ── Typing indicator ──────────────────────────────────────────────────
+   Three dots that rise and fall in sequence. Each dot is offset by an
+   inline `animationDelay`, so one keyframe drives all three and they stay
+   in step no matter when the component mounts. `translateY` only — no
+   layout, no repaint of the thread behind it. */
+@keyframes nm-typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30%           { transform: translateY(-4px); opacity: 1; }
+}
+
+.nm-typing-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+  color: #0b8a3e;
+  animation: nm-typing-bounce 1.1s ease-in-out infinite;
+}
+
+/* A user who asked the OS to reduce motion gets a still, dimmed row of
+   dots rather than a bouncing one — the text label still says "typing". */
+@media (prefers-reduced-motion: reduce) {
+  .nm-typing-dot {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+
 /* =====================================================================
    Global loader
    ---------------------------------------------------------------------

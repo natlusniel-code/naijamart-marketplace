@@ -1,29 +1,33 @@
 /**
  * AI seller reply.
  *
- * ── The two modes ───────────────────────────────────────────────────────
+ * ── The two modes ──────────────────────────────────────────────────────
  *   OFFLINE  the seller has not been seen for 3 minutes → the AI answers
  *            the buyer itself, and the message is marked `ai_generated`
  *            so the thread says so honestly.
- *   ONLINE   the seller is present → the AI only SUGGESTS. The seller
- *            reads it, edits it if they want, and presses send. Nothing
- *            is sent on their behalf.
+ *   ONLINE   the seller is present → the AI only SUGGESTS. Nothing is
+ *            sent on their behalf; the draft waits in the seller's thread
+ *            for them to use, edit or dismiss.
  *
- * ── Why the mode is decided on the server ───────────────────────────────
+ * The AI NEVER sends while the seller is online. That is the rule, and it
+ * is re-checked on every buyer message, so a seller who returns mid-thread
+ * takes over from the next message onward.
+ *
+ * ── Why the mode is decided on the server ──────────────────────────────
  * If the browser decided, a stale tab would keep auto-replying after the
  * seller came back, and the seller would be talking to buyers through a
  * bot they thought was off. `seller_is_online` (sql/0035) reads
  * `shops.last_seen_at`, which the seller's shell heartbeats. The decision
  * is made where the truth is.
  *
- * ── Why the AI is given the shop's real facts ───────────────────────────
+ * ── Why the AI is given the shop's real facts ──────────────────────────
  * A generic "reply helpfully" prompt produces a reply that invents a
  * delivery time and a price. The prompt below is given the shop's actual
  * delivery fee, its listings, its policies and the recent thread, and is
  * told to answer only from those. If it does not know, it must say it will
  * check — which is what a good human seller does.
  *
- * ── Why the chat guard still applies ────────────────────────────────────
+ * ── Why the chat guard still applies ───────────────────────────────────
  * An AI reply is a message like any other. It goes through
  * `send_chat_message` (sql/0011), so the block list still runs on it. An
  * AI that could leak a phone number would be worse than no AI at all.
@@ -209,7 +213,7 @@ Rules for a suggested reply:
 - Never share a phone number, email, WhatsApp, bank account or any link. All payment stays on NaijaMart.
 - No "As an AI". Write as the seller.`;
 
-  // ── The model call, with its failure REASON kept ────────────────────────
+  // ── The model call, with its failure REASON kept ──────────────────────
   // This used to be wrapped in `aiTry`, which returns `null` and logs a
   // generic `[ai] ...` line. The caller turned that null into the reason
   // "no_draft", so a rate limit, a rejected key and a dead network all
@@ -311,30 +315,25 @@ export async function handleBuyerMessage(
 
     /*
       ── Auto or suggest? ──────────────────────────────────────────────────
-      THE BUG THIS FIXES
-      The heartbeat (`shops.last_seen_at`, pinged every 60s by any open hub
-      tab) answers "is a tab open somewhere", NOT "can the seller answer
-      this message". A seller who leaves the hub open in a background tab,
-      or whose phone is in their pocket with the tab alive, reads as online
-      indefinitely. Every buyer message then became a `suggested` draft that
-      nobody ever sent — and the buyer saw silence. That was the report:
-      Premium seller, AI enabled, message unanswered, no draft sent.
+      THE RULE
+      The AI speaks for the seller ONLY while the seller is away. While the
+      seller is online the AI never sends anything: it drafts a suggestion
+      the seller can use, and the seller does the talking.
 
-      Presence now chooses BETWEEN TWO WORKING OUTCOMES, never between
-      "reply" and "nothing":
+      This is decided per message, not once per conversation, so a seller
+      who comes back mid-thread stops the AI from that message onward and
+      takes over — no flag to reset, no stale state to clear.
 
-        seller present → a fuller, chattier draft (they are reading it)
-        seller absent  → the short, safe draft
-
-      In both cases the reply is SENT, flagged `ai_generated` and labelled
-      in the thread, so the seller can see exactly what went out in their
-      name and follow up in their own words. The suggestion row is still
-      written either way, which keeps the audit trail.
+      Presence comes from `seller_is_online` (sql/0035), which reads the
+      heartbeat the Seller Hub pings. A hidden tab does not ping (see
+      `seller-presence.tsx`), so a seller who walked away reads as offline
+      and the AI answers — which is the whole point of the feature.
     */
     const { data: online } = await supabase.rpc("seller_is_online", {
       p_shop_id: ctx.shopId,
     });
-    const mode: ReplyMode = online === true ? "suggested" : "auto";
+    const sellerOnline = online === true;
+    const mode: ReplyMode = sellerOnline ? "suggested" : "auto";
 
     const drafted = await draftReply(ctx, mode);
     if (!drafted.text) {
@@ -368,7 +367,14 @@ export async function handleBuyerMessage(
       p_mode: mode,
     });
 
-    // ── Auto mode: send it ────────────────────────────────────────────────
+    // ── Auto mode only: send it ───────────────────────────────────────────
+    // A `suggested` draft is NOT sent. The seller is online, so the AI must
+    // not speak for them; the row stays `pending` and the seller's own
+    // thread shows it as a draft they can use, edit or dismiss.
+    if (mode !== "auto") {
+      return { mode, sent: false, reason: "seller_online" };
+    }
+
     // Through `send_ai_reply` (sql/0039), NOT `send_chat_message`.
     //
     // `send_chat_message` derives the sender from `auth.uid()`, and the
@@ -388,11 +394,18 @@ export async function handleBuyerMessage(
     if (error) return { mode, sent: false, reason: error.message };
 
     const result = (Array.isArray(data) ? data[0] : data) as
-      | { blocked?: boolean; message?: { id: string } }
+      | { blocked?: boolean; skipped?: boolean; reason?: string; message?: { id: string } }
       | null;
 
     if (result?.blocked) {
       return { mode, sent: false, reason: "blocked" };
+    }
+
+    // The database refused because the seller came back between our check
+    // and the insert (sql/0042). The draft is already stored as a
+    // suggestion, so the seller still gets it — nothing is lost.
+    if (result?.skipped) {
+      return { mode, sent: false, reason: result.reason ?? "seller_online" };
     }
 
     // The message is already flagged `ai_generated` by the RPC; mark the

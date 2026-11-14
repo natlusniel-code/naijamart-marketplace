@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getSession, createClient } from "@/lib/supabase/server";
 import { ChatThread } from "@/components/chat-thread";
+import { shopHasFeature } from "@/lib/plan-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -53,11 +54,32 @@ export default async function ChatPage({
       .order("created_at", { ascending: true }),
   ]);
 
+  // The seller's presence, read on the server so the headline is correct on
+  // the first paint instead of flashing "Offline" until the client polls.
+  const { data: sellerOnline } = c.shop_id
+    ? await supabase.rpc("seller_is_online", { p_shop_id: c.shop_id })
+    : { data: false };
+
+  /*
+    ── Is the AI allowed to answer in this shop at all? ──────────────────
+    The buyer's browser is what asks for the reply, so it is also what
+    shows the "assistant is typing" dots. A Basic shop must not get either:
+    the endpoint refuses it (seller_has_feature), and the dots would be a
+    promise the endpoint will not keep. Same gate, read once here.
+  */
+  const aiReplyEntitled = c.shop_id
+    ? await shopHasFeature(c.shop_id, "aiReply")
+    : false;
+
   return (
     <ChatThread
       chatId={params.id}
       meId={uid}
       amSeller={amSeller}
+      otherUserId={otherId}
+      shopId={c.shop_id ?? null}
+      sellerOnlineSeed={sellerOnline === true}
+      aiReplyEnabled={aiReplyEntitled}
       otherName={other?.full_name ?? "Member"}
       otherAvatar={other?.avatar_url ?? null}
       shopName={c.shops?.name ?? null}
