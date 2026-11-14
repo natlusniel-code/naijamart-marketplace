@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { Spinner, Alert, Card, Badge } from "@/components/ui";
 import { naira, discountPercent } from "@/lib/utils";
+import { AiListingPanel } from "@/components/seller/ai-listing-panel";
 
 /**
  * Read a file's real pixel dimensions.
@@ -214,6 +215,39 @@ export function ListingForm({
         </h1>
         {editing && <Badge tone="gray">{listing.status}</Badge>}
       </div>
+
+      {/* ---------------------------------------------------------------
+          Product Listing Assistant.
+
+          Sits above the form because it FILLS the form: the seller uploads a
+          photo, gets copy back, and presses "Use this in my listing" to drop
+          the title, description and tags into the fields below. It never
+          navigates away, so a half-typed price or stock count survives.
+
+          Rendered for products only. A service is priced and described
+          differently (plans, service area, home visit), and the assistant's
+          product-shaped output would fight the form rather than help it.
+         --------------------------------------------------------------- */}
+      {type === "product" && (
+        <AiListingPanel
+          shopId={shopId}
+          listingId={listing?.id}
+          onApply={({ title, description, tags: aiTags }) => {
+            setForm((f) => ({ ...f, title, description }));
+            // Merge rather than replace: a seller may have typed tags before
+            // generating, and silently dropping them would be a surprise.
+            setTags((current) => {
+              const merged = [...current];
+              for (const t of aiTags) {
+                if (merged.length >= MAX_TAGS) break;
+                if (!merged.includes(t)) merged.push(t);
+              }
+              return merged;
+            });
+            setErr("");
+          }}
+        />
+      )}
 
       <Card className="p-4">
         {/* type toggle */}
