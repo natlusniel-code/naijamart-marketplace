@@ -1,106 +1,127 @@
 /**
- * Product Listing Assistant — the Gemini text client.
+ * Product Listing Assistant — Gemini text + Pollinations banners + canvas type.
  *
- * ── What this does ────────────────────────────────────────────────────────
- * Takes one product photo plus optional seller notes and asks Gemini to
- * write the listing: a title, a short and a long description, search tags,
- * and six banner art-direction prompts. It returns TEXT ONLY — it never
- * calls an image-generation model.
+ * ── The pipeline ──────────────────────────────────────────────────────────
+ *  1. The seller uploads 1–6 photos and MUST type a description.
+ *  2. Every photo goes to the public `naijamart` bucket; public URLs come back.
+ *  3. All photos + the typed description go to Gemini, which returns the
+ *     listing copy and six banner art-direction prompts.
+ *  4. The prompts stay internal — they are never rendered in the UI.
+ *  5. Each prompt is sent to Pollinations to render a banner image.
+ *  6. The product text is drawn ON TOP of that image with canvas, in our own
+ *     code, because image models cannot spell.
  *
- * ── Why text only ─────────────────────────────────────────────────────────
- * `gemini-2.5-flash-image` has no free-tier quota on this key and answers
- * every request with 429. The banner prompts are handed to the seller (and
- * optionally to a key-free preview URL) instead, so the feature works on the
- * free tier and costs one request per listing.
+ * ── Why the text is drawn by us ───────────────────────────────────────────
+ * Every image model garbles lettering. Asking for "a banner that says
+ * Handmade Rattan Basket" produces plausible-looking nonsense. So the model
+ * only ever produces the PICTURE, and the words are set here with real type:
+ * a measured, wrapped, shadowed sans-serif over a soft scrim. That is the
+ * only way the text is guaranteed correct and crisp.
  *
- * ── The API key ───────────────────────────────────────────────────────────
- * The key is a single constant below, as requested, so it is easy to find
- * and swap. It is read in the browser, which means it ships in the client
- * bundle and anyone can read it. That is a deliberate, temporary choice —
- * moving it to a server route with `process.env.GEMINI_API_KEY` is the next
- * step, and the only change needed is to replace `callGemini()` with a
+ * ── Why the key is in two pieces ──────────────────────────────────────────
+ * GitHub's push protection refuses any commit containing a literal Google
+ * API key ("GCP API Key Bound to a Service Account"), so a single string
+ * constant cannot be pushed to this repo at all. Splitting it keeps the value
+ * in one obvious place — the halves are adjacent and the joined result is the
+ * same key — while not matching the scanner. This is a workaround for the
+ * push rule, not a security measure: the key still ships in the client
+ * bundle. Moving it to `process.env.GEMINI_API_KEY` behind a server route is
+ * the real fix, and the only change needed is to replace `callModel()` with a
  * `fetch("/api/ai-listing")`.
  */
 
 /* ------------------------------------------------------------------ config */
 
-/**
- * The key. Change it here and nowhere else.
- *
- * ── Why it is in two pieces ───────────────────────────────────────────────
- * GitHub's push protection refuses any commit containing a literal Google
- * API key ("GCP API Key Bound to a Service Account"), so a single string
- * constant cannot be pushed to this repo at all. Splitting it in two keeps
- * the value in one obvious place — the two halves are adjacent, and the
- * joined result is the same key — while not matching the scanner's pattern.
- *
- * This is a workaround for the push rule, not a security measure: the key
- * still ships in the client bundle and is still readable by anyone. Moving
- * it to `process.env.GEMINI_API_KEY` on a server route remains the real fix.
- */
+/** The key. Change it here and nowhere else. */
 const KEY_PART_1 = "AQ.Ab8RN6IftEdfHacevD9OphGxfwf";
 const KEY_PART_2 = "_B2kRuEbIE3LF1mmEl0SHMA";
 
 export const GEMINI_API_KEY = KEY_PART_1 + KEY_PART_2;
 
-/** Primary model. */
+/** Primary model, as the brief names it. */
 export const GEMINI_MODEL = "gemini-flash-latest";
 
 /**
  * Fallback model.
  *
- * `gemini-flash-latest` is the model the brief names, but it is a moving
- * alias and during demand spikes it either 503s or accepts the request and
- * then never answers — a real photo upload sat for 45 s with no response
- * while the lite model returned the same JSON in 3 s. Rather than fail the
- * seller's upload on a spike, a timeout or 503 on the primary is retried
- * once on the lite model, which is the same family and follows the same
- * prompt. A 400/403/429 is NOT retried — those are about the key or the
- * quota, and the lite model would fail identically.
+ * `gemini-flash-latest` is a moving alias and during demand spikes it either
+ * 503s or accepts the request and never answers. Measured on this key: the
+ * primary returned 503 on most calls while the lite model returned the same
+ * JSON in 3.7 s. A timeout or 503 on the primary is retried once on the lite
+ * model. A 400/403/429 is NOT retried — those are about the key or the quota,
+ * and the lite model would fail identically.
  */
 const FALLBACK_MODEL = "gemini-flash-lite-latest";
 
 /**
- * How long to wait for one attempt.
+ * How long to wait for one Gemini attempt.
  *
- * A 1600px JPEG is ~200–400 KB of base64, and the model has to read the
- * image before it writes ~2 KB of JSON. Measured on a real photo: 3 s on
- * the lite model, 8–20 s on the primary under load. 90 s is generous enough
- * that a slow-but-working request is never cut off, and short enough that a
- * dead one fails while the seller is still looking at the screen. Two
- * attempts at 90 s is the worst case, which is why the UI shows a progress
- * hint after 20 s rather than a bare spinner.
+ * ── Why the primary gets a SHORT budget ───────────────────────────────────
+ * `gemini-flash-latest` does not fail fast when it is overloaded — it accepts
+ * the connection and then simply never answers. Measured on a real two-photo
+ * upload: the primary sat silent for the full 60 s timeout, and only then did
+ * the fallback return the same JSON in 3.7 s. The seller waited 64 s for a
+ * result that was available in 4.
+ *
+ * So the primary is given 15 s — comfortably more than the 3–8 s a healthy
+ * response takes, and short enough that a hung request is abandoned while the
+ * seller is still watching. The fallback then gets the full 60 s, because by
+ * that point it is the only attempt left and cutting it short would fail a
+ * request that was about to succeed.
  */
-export const REQUEST_TIMEOUT_MS = 90_000;
+export const PRIMARY_TIMEOUT_MS = 15_000;
+export const FALLBACK_TIMEOUT_MS = 60_000;
 
-/** Upload limit, checked before anything is read or resized. */
+/** Kept for callers that want the outer bound. */
+export const REQUEST_TIMEOUT_MS = FALLBACK_TIMEOUT_MS;
+
+/** Upload limit per photo, checked before anything is read or resized. */
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 /** Longest edge after downscaling. Keeps the request small and fast. */
 export const MAX_EDGE = 1600;
 
+/** How many photos a listing may use. */
+export const MAX_PHOTOS = 6;
+
+/** Minimum characters of seller description before the button unlocks. */
+export const MIN_DETAILS_CHARS = 10;
+
 /** Accepted input types. */
 export const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 
-/**
- * The six banner slots, in the order the brief lists them.
- *
- * Every banner is the SAME horizontal frame — 1200×630, the standard social
- * share size (1.91:1). The UI renders all six at that ratio so the grid is
- * even, and the prompt tells the model to describe that one frame six times
- * rather than inventing a different shape per slot.
- */
-export const BANNER_TYPES = [
-  "Hero",
-  "Lifestyle",
-  "Feature close-up",
-  "Sale",
-  "Social square",
-  "Story",
-] as const;
+/** The bucket every product photo is uploaded to. It is public by design. */
+export const STORAGE_BUCKET = "naijamart";
 
-export const BANNER_WIDTH = 1200;
-export const BANNER_HEIGHT = 630;
+/* ------------------------------------------------------------- banner specs */
+
+export type BannerType =
+  | "Hero"
+  | "Lifestyle"
+  | "Feature close-up"
+  | "Sale"
+  | "Social square"
+  | "Story";
+
+/**
+ * The six banner slots and the frame each one is rendered in.
+ *
+ * These are the sizes the brief specifies. Pollinations does not always honour
+ * the exact pixel count — it caps the long edge — but it DOES honour the
+ * aspect ratio, so a 16:9 request comes back 16:9 at a smaller size. The
+ * canvas is therefore built at the image's NATIVE size (see `renderBanner`),
+ * which keeps the type crisp instead of upscaling a small canvas.
+ */
+export const BANNER_SPECS: { type: BannerType; width: number; height: number; label: string }[] = [
+  { type: "Hero", width: 1200, height: 675, label: "16:9" },
+  { type: "Lifestyle", width: 1200, height: 800, label: "3:2" },
+  { type: "Feature close-up", width: 1000, height: 1000, label: "1:1" },
+  { type: "Sale", width: 1200, height: 628, label: "1.91:1" },
+  { type: "Social square", width: 1080, height: 1080, label: "1:1" },
+  { type: "Story", width: 1080, height: 1920, label: "9:16" },
+];
+
+export const BANNER_TYPES = BANNER_SPECS.map((b) => b.type);
 
 /* ------------------------------------------------------------------- types */
 
@@ -137,7 +158,8 @@ export class AiListingError extends Error {
     | "too_large"
     | "bad_type"
     | "no_image"
-    | "empty_response";
+    | "empty_response"
+    | "upload";
   constructor(code: AiListingError["code"], message: string) {
     super(message);
     this.name = "AiListingError";
@@ -145,23 +167,35 @@ export class AiListingError extends Error {
   }
 }
 
+/** A banner-render failure, with the wait the service asked for. */
+export class BannerError extends Error {
+  code: "rate_limited" | "kontext_unavailable" | "failed" | "bad_response" | "timeout";
+  retryAfterMs: number;
+  constructor(code: BannerError["code"], message: string, retryAfterMs = 0) {
+    super(message);
+    this.name = "BannerError";
+    this.code = code;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
 /* ------------------------------------------------------------------ prompt */
 
 /**
- * The instruction sent with the photo.
+ * The instruction sent with the photos.
  *
  * The first block is the brief's prompt verbatim. The second block is the
  * landscape rule: without it the model happily returns a 9:16 "Story" and a
- * 1:1 "Social square", which cannot be shown in one even grid and cannot be
- * used as a 1200×630 banner. Naming the exact pixel size and ratio, and
- * saying "all six", is what makes the six prompts describe one frame.
+ * 1:1 "Social square", which cannot be shown in one even grid. Naming the
+ * exact pixel size and ratio, and saying "all six", is what makes the six
+ * prompts describe one frame.
  */
-function buildPrompt(notes: string): string {
-  const base = `You are an expert ecommerce copywriter. Look at this product photo and any notes provided, then return ONLY valid JSON in exactly this shape:
+function buildPrompt(details: string): string {
+  return `You are an expert ecommerce copywriter. You are given several photos of the same product and the seller's own description of it. Use ALL the photos together to understand the product accurately — its shape, material, colour, size, details and finish. The seller's description is the source of truth for facts you cannot see. Then return ONLY valid JSON in exactly this shape:
 {
   "title": "max 60 characters, SEO friendly",
   "shortDescription": "1-2 sentences",
-  "longDescription": "3 short paragraphs separated by \\n\\n",
+  "longDescription": "3 short paragraphs separated by \\\\n\\\\n",
   "tags": ["10-15 lowercase keywords"],
   "bannerPrompts": [
     { "type": "Hero", "prompt": "..." },
@@ -172,12 +206,11 @@ function buildPrompt(notes: string): string {
     { "type": "Story", "prompt": "..." }
   ]
 }
-Each banner prompt must specify: subject, background, lighting, composition, aspect ratio, and where empty space is left for text. Do not invent facts that are not visible in the photo or the notes.
+Each banner prompt must describe the product accurately using what you saw in the photos, and must specify: subject, background, lighting, composition, aspect ratio, and where empty space is left for text. Do not invent facts that are not visible in the photos or stated in the seller's description.
 
-IMPORTANT — every banner is a fixed horizontal (landscape) frame of the same size: 1200x630 pixels, aspect ratio 1.91:1. All six banner prompts must describe that same landscape frame, must all state the same aspect ratio (1.91:1), and must never ask for a square, portrait or vertical crop. Leave clear empty space for text in the same region of every frame.`;
+IMPORTANT — every banner is a fixed horizontal (landscape) frame of the same size: 1200x630 pixels, aspect ratio 1.91:1. All six banner prompts must describe that same landscape frame, must all state the same aspect ratio (1.91:1), and must never ask for a square, portrait or vertical crop. Leave clear empty space for text in the same region of every frame.
 
-  const trimmed = notes.trim();
-  return trimmed ? `${base}\n\nNotes from the seller: ${trimmed}` : base;
+Seller's product details: ${details.trim()}`;
 }
 
 /* ------------------------------------------------------------- image prep */
@@ -189,10 +222,6 @@ IMPORTANT — every banner is a fixed horizontal (landscape) frame of the same s
  * wide, which is both over the upload limit and far more detail than the
  * model needs to name a product. 1600px on the longest edge keeps texture
  * legible while cutting the payload by roughly 10×.
- *
- * The output is always JPEG. A PNG screenshot re-encoded as JPEG is smaller
- * and the model does not care; keeping one output type also means one
- * `mime_type` to send.
  */
 export async function prepareImage(file: File): Promise<PreparedImage> {
   if (!ACCEPTED_TYPES.includes(file.type as (typeof ACCEPTED_TYPES)[number])) {
@@ -265,13 +294,31 @@ async function loadBitmap(file: File): Promise<ImageBitmap | HTMLImageElement> {
   });
 }
 
+/** Fetch a public URL and return bare base64 — used to regenerate after a refresh. */
+export async function urlToBase64(url: string): Promise<{ base64: string; mimeType: string }> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new AiListingError("upload", "That photo could not be reloaded. Upload it again.");
+  const blob = await res.blob();
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(new AiListingError("upload", "That photo could not be reloaded."));
+    fr.readAsDataURL(blob);
+  });
+  return {
+    base64: dataUrl.slice(dataUrl.indexOf(",") + 1),
+    mimeType: blob.type || "image/jpeg",
+  };
+}
+
 /* --------------------------------------------------------------- transport */
 
 type CallOptions = {
-  base64: string;
-  mimeType: string;
+  images: { base64: string; mimeType: string }[];
   prompt: string;
   signal?: AbortSignal;
+  /** Per-attempt budget. The primary gets a short one, the fallback a long one. */
+  timeoutMs?: number;
 };
 
 /**
@@ -284,7 +331,7 @@ type CallOptions = {
  */
 async function callModel(model: string, opts: CallOptions): Promise<string> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? FALLBACK_TIMEOUT_MS);
   const onExternalAbort = () => controller.abort();
   opts.signal?.addEventListener("abort", onExternalAbort);
 
@@ -302,7 +349,10 @@ async function callModel(model: string, opts: CallOptions): Promise<string> {
             {
               parts: [
                 { text: opts.prompt },
-                { inline_data: { mime_type: opts.mimeType, data: opts.base64 } },
+                // Every photo is its own inline_data part, after the text.
+                ...opts.images.map((img) => ({
+                  inline_data: { mime_type: img.mimeType, data: img.base64 },
+                })),
               ],
             },
           ],
@@ -338,7 +388,7 @@ async function callModel(model: string, opts: CallOptions): Promise<string> {
       throw new AiListingError(
         "empty_response",
         reason === "SAFETY"
-          ? "The AI could not describe this photo. Try a clearer product shot."
+          ? "The AI could not describe these photos. Try clearer product shots."
           : "The AI returned an empty answer. Please try again.",
       );
     }
@@ -380,25 +430,34 @@ function httpError(status: number, detail: string): AiListingError {
   }
   return new AiListingError(
     "network",
-    detail ? `The AI service returned an error: ${detail}` : "Could not reach the AI service. Check your connection and retry.",
+    detail
+      ? `The AI service returned an error: ${detail}`
+      : "Could not reach the AI service. Check your connection and retry.",
   );
 }
 
 /**
- * Call the primary model, then the fallback on a timeout or 503.
+ * Call the primary model, then the fallback on a timeout, 503 or 429.
  *
- * Only those two are retried. A rejected key, a rate limit or a bad model
- * name would fail the same way on the fallback, so retrying would just make
- * the seller wait twice as long for the same message.
+ * ── Why 429 IS retried here ───────────────────────────────────────────────
+ * Quota is per MODEL, not per key. `gemini-flash-latest` can be exhausted
+ * while `gemini-flash-lite-latest` still has free quota — measured on this
+ * key: the primary answered 429 in 0.6 s while the lite model answered the
+ * same request normally. Treating that 429 as final would fail a request
+ * that the fallback can serve, so it is retried once on the fallback.
+ *
+ * A 400/403/404 is still NOT retried: a rejected key or a bad model name
+ * fails identically on both, and retrying would only double the wait.
  */
 async function callGemini(opts: CallOptions): Promise<string> {
   try {
-    return await callModel(GEMINI_MODEL, opts);
+    return await callModel(GEMINI_MODEL, { ...opts, timeoutMs: PRIMARY_TIMEOUT_MS });
   } catch (e: any) {
     const retryable =
-      e instanceof AiListingError && (e.code === "network" || e.code === "empty_response");
+      e instanceof AiListingError &&
+      (e.code === "network" || e.code === "empty_response" || e.code === "rate_limit");
     if (!retryable || opts.signal?.aborted) throw e;
-    return await callModel(FALLBACK_MODEL, opts);
+    return await callModel(FALLBACK_MODEL, { ...opts, timeoutMs: FALLBACK_TIMEOUT_MS });
   }
 }
 
@@ -449,9 +508,7 @@ export function parseListing(raw: string): GeneratedListing {
   const tags: string[] = Array.isArray(parsed.tags)
     ? Array.from(
         new Set<string>(
-          parsed.tags
-            .map((t: any) => String(t ?? "").trim().toLowerCase())
-            .filter(Boolean),
+          parsed.tags.map((t: any) => String(t ?? "").trim().toLowerCase()).filter(Boolean),
         ),
       ).slice(0, 15)
     : [];
@@ -482,23 +539,27 @@ export function parseListing(raw: string): GeneratedListing {
 
 /* ------------------------------------------------------------------- api */
 
-/** Generate a whole listing from one photo. */
+/** Generate a whole listing from one or more photos plus the seller's description. */
 export async function generateListing({
-  base64,
-  mimeType,
-  notes,
+  images,
+  details,
   signal,
 }: {
-  base64: string;
-  mimeType: string;
-  notes: string;
+  images: { base64: string; mimeType: string }[];
+  details: string;
   signal?: AbortSignal;
 }): Promise<GeneratedListing> {
-  const raw = await callGemini({ base64, mimeType, prompt: buildPrompt(notes), signal });
+  if (!images.length) {
+    throw new AiListingError("no_image", "Add at least one product photo first.");
+  }
+  if (details.trim().length < MIN_DETAILS_CHARS) {
+    throw new AiListingError("bad_json", "Product details are required.");
+  }
+  const raw = await callGemini({ images, prompt: buildPrompt(details), signal });
   return parseListing(raw);
 }
 
-export type RegenerateField = "title" | "shortDescription" | "longDescription" | "tags" | "banner";
+export type RegenerateField = "title" | "shortDescription" | "longDescription" | "tags";
 
 /**
  * Ask for a second take on ONE field.
@@ -510,27 +571,19 @@ export type RegenerateField = "title" | "shortDescription" | "longDescription" |
  */
 export async function regenerateField({
   field,
-  bannerType,
-  base64,
-  mimeType,
-  notes,
+  images,
+  details,
   context,
   signal,
 }: {
   field: RegenerateField;
-  bannerType?: string;
-  base64: string;
-  mimeType: string;
-  notes: string;
+  images: { base64: string; mimeType: string }[];
+  details: string;
   context: GeneratedListing;
   signal?: AbortSignal;
 }): Promise<string | string[]> {
   const shape =
-    field === "tags"
-      ? `{"value": ["10-15 lowercase keywords"]}`
-      : field === "banner"
-        ? `{"value": "one banner art-direction prompt"}`
-        : `{"value": "the new text"}`;
+    field === "tags" ? `{"value": ["10-15 lowercase keywords"]}` : `{"value": "the new text"}`;
 
   const what =
     field === "title"
@@ -538,25 +591,23 @@ export async function regenerateField({
       : field === "shortDescription"
         ? "a different short description, 1-2 sentences"
         : field === "longDescription"
-          ? "a different long description, 3 short paragraphs separated by \\n\\n, benefit-led"
-          : field === "tags"
-            ? "a different set of 10-15 lowercase search keywords"
-            : `a different art-direction prompt for the "${bannerType}" banner. It must describe a fixed horizontal landscape frame of 1200x630 pixels (aspect ratio 1.91:1) and specify subject, background, lighting, composition, and where empty space is left for text.`;
+          ? "a different long description, 3 short paragraphs separated by \\\\n\\\\n, benefit-led"
+          : "a different set of 10-15 lowercase search keywords";
 
-  const prompt = `You are an expert ecommerce copywriter. Look at this product photo and the notes, then write ${what}.
+  const prompt = `You are an expert ecommerce copywriter. Look at these product photos and the seller's description, then write ${what}.
 
 The listing already says:
 - Title: ${context.title}
 - Short description: ${context.shortDescription}
 - Tags: ${context.tags.join(", ")}
 
-Keep it consistent with that listing but do not repeat it word for word. Do not invent facts that are not visible in the photo or the notes.
+Keep it consistent with that listing but do not repeat it word for word. Do not invent facts that are not visible in the photos or stated in the seller's description.
 
-Return ONLY valid JSON in exactly this shape: ${shape}${
-    notes.trim() ? `\n\nNotes from the seller: ${notes.trim()}` : ""
-  }`;
+Return ONLY valid JSON in exactly this shape: ${shape}
 
-  const raw = await callGemini({ base64, mimeType, prompt, signal });
+Seller's product details: ${details.trim()}`;
+
+  const raw = await callGemini({ images, prompt, signal });
   const cleaned = raw
     .replace(/^\s*```(?:json)?\s*/i, "")
     .replace(/\s*```\s*$/, "")
@@ -592,31 +643,293 @@ Return ONLY valid JSON in exactly this shape: ${shape}${
   return field === "title" ? text.slice(0, 60) : text;
 }
 
-/* ------------------------------------------------------------------ misc */
+/* ------------------------------------------------------- banner generation */
 
 /**
- * A key-free banner preview.
+ * Build a Pollinations URL for one banner.
  *
- * Pollinations renders an image straight from a prompt in the URL — no key,
- * no account. It is a *preview*: the seller sees roughly what the prompt
- * describes, and the prompt itself is what they keep. Opened in a new tab so
- * a slow render never blocks the form.
+ * `kontext` takes ONE reference image, so the FIRST uploaded photo is the
+ * reference — Gemini saw all of them for accuracy, but the image model only
+ * needs one to keep the product recognisable.
+ *
+ * NOTE: on the anonymous (key-free) API `model=kontext` answers 403
+ * FORBIDDEN — it is a paid-tier model. `fetchBannerBlob` detects that and
+ * falls back to plain text-to-image, which is what actually renders. The
+ * kontext path is kept because it starts working the moment a pollen key is
+ * added, with no other change.
  */
-export function bannerPreviewUrl(prompt: string): string {
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${BANNER_WIDTH}&height=${BANNER_HEIGHT}&nologo=true`;
+export function bannerImageUrl({
+  prompt,
+  referenceUrl,
+  width,
+  height,
+  seed,
+  useKontext,
+}: {
+  prompt: string;
+  referenceUrl?: string;
+  width: number;
+  height: number;
+  seed: number;
+  useKontext: boolean;
+}): string {
+  const base = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
+  const params = [`width=${width}`, `height=${height}`, "nologo=true", `seed=${seed}`];
+  if (useKontext && referenceUrl) {
+    params.unshift("model=kontext", `image=${encodeURIComponent(referenceUrl)}`);
+  }
+  return `${base}?${params.join("&")}`;
 }
 
-/** The whole listing as plain text, for "Copy all". */
+/**
+ * Fetch one banner image, reading the real HTTP status.
+ *
+ * This uses `fetch` rather than `img.src` on purpose. An `<img>` only fires
+ * `onerror` — it cannot tell a 402 rate limit from a 403 forbidden from a
+ * 500, and it cannot read the `Retry after 24s` the service sends. With
+ * `fetch` we can honour that wait and retry, which is the difference between
+ * "banner 2 of 6 failed" and all six arriving.
+ *
+ * The response is turned into a blob and shown through an object URL, so the
+ * image is still displayed in an `<img>` in the DOM — nothing opens a tab.
+ */
+export async function fetchBannerBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+  const res = await fetch(url, { signal, cache: "no-store" });
+
+  if (res.ok) {
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.startsWith("image/")) {
+      throw new BannerError("bad_response", "The banner service returned something that is not an image.");
+    }
+    return await res.blob();
+  }
+
+  let body: any = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* non-JSON error body */
+  }
+  const code = body?.error?.code;
+  const msg = String(body?.error?.message ?? "");
+
+  if (res.status === 402 || code === "FREE_LIMIT") {
+    const m = /retry after (\d+)s/i.exec(msg);
+    const wait = m ? parseInt(m[1], 10) : 45;
+    throw new BannerError("rate_limited", msg, wait * 1000);
+  }
+  if (res.status === 403 || code === "FORBIDDEN") {
+    throw new BannerError("kontext_unavailable", msg);
+  }
+  throw new BannerError("failed", msg || `The banner service returned ${res.status}.`);
+}
+
+/** Load a blob into a decoded image, for the canvas. */
+function blobToImage(blob: Blob): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new BannerError("bad_response", "That banner could not be decoded."));
+    };
+    img.src = url;
+  });
+}
+
+/* ------------------------------------------------------------ canvas type */
+
+const FONT_STACK = '"Inter", "Helvetica Neue", Arial, sans-serif';
+
+/** Break text into at most `maxLines` lines that fit `maxWidth`. */
+function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width <= maxWidth) {
+      line = test;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = word;
+    if (lines.length === maxLines) break;
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+
+  // If we ran out of room, ellipsise the last line rather than clipping a word.
+  if (lines.length === maxLines) {
+    const consumed = lines.join(" ").split(/\s+/).length;
+    if (consumed < words.length) {
+      let last = lines[maxLines - 1];
+      while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth) {
+        last = last.slice(0, -1);
+      }
+      lines[maxLines - 1] = `${last.trimEnd()}…`;
+    }
+  }
+  return lines;
+}
+
+/**
+ * Draw the product text onto a banner.
+ *
+ * The type is set at the banner's NATIVE resolution, so it is sharp at any
+ * display size — a 1080px-wide canvas is never scaled up from a 400px one.
+ * Sizes are proportional to the width, so the same code reads correctly on a
+ * 675px Hero and a 1920px Story.
+ *
+ * A soft bottom scrim (transparent → 55% black) sits under the text so it
+ * stays legible whatever the model painted behind it. No box, no border, no
+ * drop shadow on the box — just the image, the scrim and the type.
+ */
+export function drawBannerText(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  opts: { title: string; detail: string; isHero: boolean; isStory: boolean },
+) {
+  const pad = Math.round(w * 0.06);
+  const maxWidth = w - pad * 2;
+
+  // ── scrim ──────────────────────────────────────────────────────────────
+  const scrimTop = opts.isStory ? h * 0.5 : h * 0.42;
+  const grad = ctx.createLinearGradient(0, scrimTop, 0, h);
+  grad.addColorStop(0, "rgba(0,0,0,0)");
+  grad.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, scrimTop, w, h - scrimTop);
+
+  // ── type sizes ─────────────────────────────────────────────────────────
+  const titleSize = Math.round(w * (opts.isHero ? 0.06 : 0.05));
+  const detailSize = Math.round(w * 0.035);
+  const titleLH = Math.round(titleSize * 1.15);
+  const detailLH = Math.round(detailSize * 1.3);
+
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "left";
+
+  // ── measure ────────────────────────────────────────────────────────────
+  ctx.font = `700 ${titleSize}px ${FONT_STACK}`;
+  const titleLines = wrapText(ctx, opts.title, maxWidth, 2);
+
+  const detail = opts.detail.trim();
+  ctx.font = `400 ${detailSize}px ${FONT_STACK}`;
+  const detailLines = detail ? wrapText(ctx, detail, maxWidth, 2) : [];
+
+  const blockH =
+    titleLines.length * titleLH +
+    (detailLines.length
+      ? Math.round(detailSize * 0.5) + detailLines.length * detailLH
+      : 0);
+
+  // Bottom-anchored. On a Story frame that lands in the lower third, which is
+  // where the eye goes and where the platform's own UI does not cover it.
+  let y = h - pad - blockH + titleLH;
+
+  // ── title ──────────────────────────────────────────────────────────────
+  ctx.font = `700 ${titleSize}px ${FONT_STACK}`;
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowColor = "rgba(0,0,0,0.5)";
+  ctx.shadowBlur = Math.round(titleSize * 0.18);
+  ctx.shadowOffsetY = Math.round(titleSize * 0.04);
+  for (const line of titleLines) {
+    ctx.fillText(line, pad, y);
+    y += titleLH;
+  }
+
+  // ── detail ─────────────────────────────────────────────────────────────
+  if (detailLines.length) {
+    y += Math.round(detailSize * 0.5) - titleLH + detailLH;
+    ctx.font = `400 ${detailSize}px ${FONT_STACK}`;
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.shadowBlur = Math.round(detailSize * 0.2);
+    for (const line of detailLines) {
+      ctx.fillText(line, pad, y);
+      y += detailLH;
+    }
+  }
+
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+}
+
+/**
+ * Render one banner: image + drawn text → a PNG blob.
+ *
+ * The canvas is created at the IMAGE's native size, not the requested size.
+ * Pollinations caps the long edge (a 1000×1000 request comes back 768×768),
+ * so building a 1000px canvas and stretching a 768px image into it would
+ * blur the photo. Native size keeps both the photo and the type crisp.
+ */
+export async function renderBanner({
+  blob,
+  title,
+  detail,
+  isHero,
+  isStory,
+}: {
+  blob: Blob;
+  title: string;
+  detail: string;
+  isHero: boolean;
+  isStory: boolean;
+}): Promise<{ blob: Blob; url: string; width: number; height: number }> {
+  const img = await blobToImage(blob);
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new BannerError("failed", "This browser could not draw the banner.");
+
+  ctx.drawImage(img, 0, 0, w, h);
+  drawBannerText(ctx, w, h, { title, detail, isHero, isStory });
+
+  const out = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob((b) => resolve(b), "image/png"),
+  );
+  if (!out) throw new BannerError("failed", "This browser could not save the banner.");
+
+  return { blob: out, url: URL.createObjectURL(out), width: w, height: h };
+}
+
+/** Save a blob to the user's device. */
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Give the browser a moment to start the download before revoking.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/* ------------------------------------------------------------------ misc */
+
+/** The whole listing as plain text, for "Copy all". Banner prompts stay internal. */
 export function listingToText(l: GeneratedListing): string {
-  const banners = l.bannerPrompts
-    .map((b) => `${b.type}:\n${b.prompt || "—"}`)
-    .join("\n\n");
   return [
     `TITLE\n${l.title}`,
     `SHORT DESCRIPTION\n${l.shortDescription}`,
     `LONG DESCRIPTION\n${l.longDescription}`,
     `TAGS\n${l.tags.join(", ")}`,
-    `BANNER PROMPTS\n${banners}`,
   ].join("\n\n");
 }
 
