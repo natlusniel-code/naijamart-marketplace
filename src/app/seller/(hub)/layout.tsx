@@ -8,6 +8,7 @@ import { Logo, Badge, Avatar } from "@/components/ui";
 import { SellerNav } from "@/components/seller/seller-nav";
 import { NotificationBell } from "@/components/notification-bell";
 import { InstallAppPrompt } from "@/components/install-app-prompt";
+import { SellerPresence } from "@/components/seller/seller-presence";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,16 @@ export default async function SellerLayout({ children }: { children: React.React
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-4 pb-16">{children}</main>
+
+      {/*
+        The presence heartbeat.
+
+        The AI reply decides auto-vs-suggest from `shops.last_seen_at`, and
+        this is what keeps that column honest: while the hub is open the
+        seller is "online", and 3 minutes after they close it they are not.
+        Mounted in the layout so it runs on every hub page, not just chat.
+      */}
+      <SellerPresence />
 
       {/* Sellers get the same "Install app" offer as buyers — the request was
           for every signed-in user, not only the storefront. */}

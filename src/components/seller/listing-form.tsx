@@ -38,11 +38,21 @@ export function ListingForm({
   categories,
   listing,
   shopDefaults,
+  aiListingEnabled = false,
 }: {
   shopId: string;
   categories: { id: string; name: string }[];
   listing?: any;
   shopDefaults: { delivery_fee: number; free_delivery_threshold: number | null };
+  /**
+   * Whether this shop's plan includes the AI listing assistant.
+   *
+   * Resolved on the server from `seller_has_feature` and passed down, so the
+   * client never decides whether a paid feature is available. Defaults to
+   * false: a caller that forgets to pass it shows the upgrade prompt rather
+   * than handing out a Premium feature for free.
+   */
+  aiListingEnabled?: boolean;
 }) {
   const router = useRouter();
   const editing = !!listing;
@@ -230,6 +240,7 @@ export function ListingForm({
           product-shaped output would fight the form rather than help it.
          --------------------------------------------------------------- */}
       {type === "product" && (
+        aiListingEnabled ? (
         <AiListingPanel
           shopId={shopId}
           listingId={listing?.id}
@@ -248,6 +259,27 @@ export function ListingForm({
             setErr("");
           }}
         />
+        ) : (
+          /* The assistant is a Premium feature. A Basic seller sees what it
+             would do and where to upgrade, rather than a button that fails. */
+          <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-[var(--line)] bg-slate-50 px-3 py-2.5">
+            <span className="mt-0.5 text-[14px]" aria-hidden>✨</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] font-bold text-ink-900">
+                AI listing assistant is a Premium feature
+              </p>
+              <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-500">
+                Upload a photo and Premium writes the title, description and tags for you.
+              </p>
+              <a
+                href="/seller/subscription?upgrade=1"
+                className="mt-1.5 inline-block text-[11.5px] font-bold text-brand-600 hover:underline"
+              >
+                See Premium →
+              </a>
+            </div>
+          </div>
+        )
       )}
 
       <Card className="p-4">

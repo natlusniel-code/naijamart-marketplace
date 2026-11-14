@@ -28,7 +28,7 @@ export default async function SellerChatPage({ params }: { params: { id: string 
   const { data: chat } = await supabase
     .from("chats")
     .select(`id,buyer_id,seller_id,shop_id,order_id,
-      shops(name,logo_url,slug,kind),
+      shops(name,logo_url,slug,kind,ai_reply_enabled),
       orders(id,reference,status,total,fulfilment,promised_delivery_at,delivery_days)`)
     .eq("id", params.id)
     .maybeSingle();
@@ -87,6 +87,7 @@ export default async function SellerChatPage({ params }: { params: { id: string 
       initialMessages={messages ?? []}
       initialOffers={(offers ?? []) as any}
       basePath="/seller/chats"
+      aiReplyEnabled={c.shops?.ai_reply_enabled !== false}
     />
   );
 }

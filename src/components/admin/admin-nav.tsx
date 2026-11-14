@@ -16,6 +16,8 @@ const ITEMS = [
   { href: `${BASE}/disputes`, label: "Disputes" },
   { href: `${BASE}/payouts`, label: "Payouts" },
   { href: `${BASE}/reviews`, label: "Reviews" },
+  { href: `${BASE}/safety`, label: "Trust & safety" },
+  { href: `${BASE}/copilot`, label: "Copilot" },
   { href: `${BASE}/blocked-messages`, label: "Blocked messages" },
   { href: `${BASE}/notifications`, label: "Notifications" },
   { href: `${BASE}/settings`, label: "Settings" },

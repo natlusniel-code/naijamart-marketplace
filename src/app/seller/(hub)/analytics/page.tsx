@@ -3,6 +3,11 @@ import { redirect } from "next/navigation";
 import { getSession, createClient } from "@/lib/supabase/server";
 import { naira } from "@/lib/utils";
 import { Stat, Card, Badge, EmptyState } from "@/components/ui";
+import { SellerAiInsights } from "@/components/seller/seller-ai-insights";
+import { SellerQualityCard } from "@/components/seller/seller-quality-card";
+import { shopHasFeature, subscriptionState, upgradePath } from "@/lib/plan-gate";
+import { getLatestQuality } from "@/lib/ai-quality";
+import { getSellerInsights } from "@/lib/ai-seller-insights";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Analytics" };
@@ -48,6 +53,22 @@ export default async function AnalyticsPage() {
   // its job: views without clicks means the card is not convincing.
   const ctr = totals.views > 0 ? Math.round((totals.clicks / totals.views) * 100) : 0;
 
+  /*
+    ── The AI half ──────────────────────────────────────────────────
+    The existing per-listing table stays exactly as it is: it answers
+    "what happened". The two blocks below answer "what should I do".
+
+    Both are Premium features, so both are gated on
+    `seller_has_feature` — a Basic seller sees an upgrade prompt instead
+    of the content, and the data is not even fetched for them.
+  */
+  const isPremium = await shopHasFeature(session.shop.id, "aiInsights");
+  const sub = subscriptionState(session.shop);
+
+  const [insights, quality] = isPremium
+    ? await Promise.all([getSellerInsights(session.shop.id), getLatestQuality(session.shop.id)])
+    : [[], null];
+
   return (
     <div className="space-y-4">
       <div>
@@ -56,6 +77,35 @@ export default async function AnalyticsPage() {
           How each gig and product is performing. Tap one to see its own numbers.
         </p>
       </div>
+
+      {/* ── AI insights + quality (Premium) ─────────────────────────── */}
+      {isPremium ? (
+        <>
+          <SellerAiInsights shopId={session.shop.id} insights={insights} />
+          <SellerQualityCard shopId={session.shop.id} quality={quality} />
+        </>
+      ) : (
+        <Card className="p-4">
+          <div className="flex items-start gap-2.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-[15px]">
+              ✨
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13.5px] font-bold text-ink-900">AI insights are a Premium feature</p>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-ink-500">
+                Premium tells you which listing is losing you sales, what your trend means and what
+                to fix this week — on top of the numbers below.
+              </p>
+              <Link
+                href={upgradePath(sub)}
+                className="nm-btn-primary mt-2.5 inline-flex !px-3.5 !py-2 !text-[12px]"
+              >
+                See Premium
+              </Link>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {error && (
         <Card className="p-4">

@@ -3,9 +3,10 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/supabase/server";
 import { getCategories, getSettings } from "@/lib/queries";
 import { onboardingStepFor, isApprovedSeller } from "@/lib/seller-gate";
-import { OnboardingFlow } from "@/components/seller/onboarding-flow";
+import { getSellerPlans } from "@/lib/plan-gate";
 import { Logo, Avatar } from "@/components/ui";
 import { InstallAppPrompt } from "@/components/install-app-prompt";
+import { OnboardingFlow } from "@/components/seller/onboarding-flow";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Seller onboarding" };
@@ -24,7 +25,11 @@ export default async function OnboardingPage({
   searchParams: { step?: string };
 }) {
   const session = await getSession();
-  const [categories, settings] = await Promise.all([getCategories(), getSettings()]);
+  const [categories, settings, plans] = await Promise.all([
+    getCategories(),
+    getSettings(),
+    getSellerPlans(),
+  ]);
 
   const shop = session?.shop ?? null;
 
@@ -65,6 +70,7 @@ export default async function OnboardingPage({
           signedIn={!!session}
           categories={categories.map((c: any) => ({ name: c.name }))}
           subscriptionPrice={Number(settings.subscription_price)}
+          plans={plans}
           bank={{
             bank_name: settings.bank_name,
             bank_account_number: settings.bank_account_number,

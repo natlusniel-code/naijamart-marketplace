@@ -13,6 +13,7 @@ import { ListingCard, ShopCard } from "@/components/cards";
 import { GigCard } from "@/components/gig-card";
 import { ListingTabs } from "@/components/listing-tabs";
 import { LocationFilter } from "@/components/location-filter";
+import { RecommendationRail } from "@/components/recommendation-rail";
 import { SectionHead, EmptyState, Badge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -142,6 +143,15 @@ export default async function HomePage({ searchParams }: { searchParams: SP }) {
             {shops.map((s) => <ShopCard key={s.id} s={s} />)}
           </div>
         </section>
+      )}
+
+      {/* ── Picked for you ───────────────────────────────────────────────
+          The AI recommendation rail. Only rendered for a signed-in buyer:
+          an anonymous visitor has no history, and the storefront feed
+          already handles that case. It renders nothing at all when there
+          is nothing to show, so a new buyer sees no empty shell. */}
+      {session?.user.id && (
+        <RecommendationRail buyerId={session.user.id} limit={6} />
       )}
 
       {/* The listing section, as drawn in the blueprint: "Product Listing"

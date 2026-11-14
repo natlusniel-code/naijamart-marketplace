@@ -14,14 +14,31 @@ type Props = {
   signedIn: boolean;
   categories: { name: string }[];
   subscriptionPrice: number;
+  /** Both plans, so the seller picks one here rather than paying a flat fee. */
+  plans?: { id: string; name: string; tagline: string | null; price: number; features: { label: string; included: boolean }[]; recommended: boolean }[];
   bank: { bank_name: string; bank_account_number: string; bank_account_name: string };
   initial?: Partial<{ name: string; city: string; state: string }>;
 };
 
 const STEP_LABELS = ["Business profile", "Verification", "Plan", "Review"];
 
-export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionPrice, bank }: Props) {
+export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionPrice, plans = [], bank }: Props) {
   const router = useRouter();
+
+  /*
+    Which plan the seller is buying.
+
+    Step 3 used to show one flat price. The brief asks for two plans with
+    the features of both visible, so the seller picks here and the amount
+    they are told to transfer follows the choice. Defaults to Premium when
+    it is the recommended one, because that is the plan the page is
+    selling — but Basic is a real, selectable option.
+  */
+  const [planId, setPlanId] = useState<string>(
+    shop?.plan ?? plans.find((p) => p.recommended)?.id ?? plans[0]?.id ?? "basic",
+  );
+  const chosenPlan = plans.find((p) => p.id === planId) ?? null;
+  const amount = chosenPlan ? chosenPlan.price : subscriptionPrice;
 
   const [form, setForm] = useState({
     name: shop?.name ?? "",
@@ -165,12 +182,24 @@ export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionP
       const { error } = await supabase.from("payments").insert({
         shop_id: shop.id,
         type: "subscription",
-        amount: subscriptionPrice,
+        amount,
         reference: `SUB-${shop.id.slice(0, 6).toUpperCase()}`,
         receipt_url: url,
       });
       if (error) throw new Error(error.message);
-      await supabase.from("shops").update({ subscription_status: "pending" }).eq("id", shop.id);
+
+      /*
+        Record the chosen plan through the RPC, not a direct update.
+
+        `choose_seller_plan` (sql/0038) is the only path a seller has to
+        change `plan`, and it forces `subscription_status = 'pending'` in
+        the same statement. A direct `.update({ plan })` would be reverted
+        by the shops guard — and if it were not, it would be the exact
+        privilege-escalation hole 0038 closes.
+      */
+      const { error: planErr } = await supabase.rpc("choose_seller_plan", { p_plan: planId });
+      if (planErr) throw new Error(planErr.message);
+
       setBusy(false);
       router.push("/seller/onboarding?step=4");
       router.refresh();
@@ -354,19 +383,58 @@ export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionP
       {step === 3 && (
         <Card className="p-4">
           <h1 className="text-[19px] font-extrabold tracking-tight text-ink-900">Choose your plan</h1>
-          <p className="mt-1 text-[13px] text-ink-500">One subscription covers unlimited listings.</p>
+          <p className="mt-1 text-[13px] text-ink-500">
+            One subscription covers unlimited listings. Pick the plan you want — you can change it later.
+          </p>
 
-          <div className="mt-3 rounded-2xl border border-brand-500/25 bg-brand-50/60 p-4">
-            <div className="flex items-baseline justify-between">
-              <p className="text-[13.5px] font-bold text-brand-900">Seller subscription</p>
-              <p className="text-[19px] font-extrabold text-brand-900">₦{subscriptionPrice.toLocaleString()} <span className="text-[12px] font-medium">/ month</span></p>
-            </div>
-            <ul className="mt-2 space-y-1 text-[12.5px] text-brand-900/80">
-              <li>✓ List unlimited products and services</li>
-              <li>✓ Receive orders from buyers in your city</li>
-              <li>✓ Get paid 4 days after delivery</li>
-              <li>✓ 5% commission per order — nothing else</li>
-            </ul>
+          {/* Both plans, side by side, with every feature listed. The seller
+              must be able to see what each plan includes before paying. */}
+          <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+            {plans.map((p) => {
+              const selected = p.id === planId;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPlanId(p.id)}
+                  aria-pressed={selected}
+                  className={cn(
+                    "rounded-2xl border p-3 text-left transition",
+                    selected
+                      ? "border-brand-500 bg-brand-50/70 ring-1 ring-brand-500/30"
+                      : "border-[var(--line)] bg-white hover:border-brand-300",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[13.5px] font-bold text-ink-900">{p.name}</p>
+                    {p.recommended && <Badge tone="green">Recommended</Badge>}
+                  </div>
+                  <p className="mt-0.5 text-[17px] font-extrabold text-ink-900">
+                    {p.price === 0 ? "Free" : `₦${p.price.toLocaleString()}`}
+                    {p.price > 0 && <span className="text-[11px] font-medium text-ink-500"> / month</span>}
+                  </p>
+                  {p.tagline && <p className="mt-0.5 text-[11.5px] leading-snug text-ink-500">{p.tagline}</p>}
+                  <ul className="mt-2 space-y-1">
+                    {p.features.map((f, i) => (
+                      <li
+                        key={i}
+                        className={cn(
+                          "flex items-start gap-1.5 text-[11.5px] leading-snug",
+                          f.included ? "text-ink-700" : "text-ink-400",
+                        )}
+                      >
+                        <span className={f.included ? "text-brand-600" : "text-ink-300"}>
+                          {f.included ? "✓" : "✕"}
+                        </span>
+                        <span className={f.included ? "" : "line-through decoration-ink-300/60"}>
+                          {f.label}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </button>
+              );
+            })}
           </div>
 
           <div className="mt-3 rounded-xl border border-[var(--line)] p-3">
@@ -375,11 +443,11 @@ export function OnboardingFlow({ step, shop, signedIn, categories, subscriptionP
               <dt className="text-ink-500">Bank</dt><dd className="font-semibold">{bank.bank_name}</dd>
               <dt className="text-ink-500">Account</dt><dd className="font-mono font-semibold">{bank.bank_account_number}</dd>
               <dt className="text-ink-500">Name</dt><dd className="font-semibold">{bank.bank_account_name}</dd>
-              <dt className="text-ink-500">Amount</dt><dd className="font-semibold">₦{subscriptionPrice.toLocaleString()}</dd>
+              <dt className="text-ink-500">Amount</dt><dd className="font-semibold">₦{amount.toLocaleString()}</dd>
               <dt className="text-ink-500">Reference</dt><dd className="font-mono font-bold text-brand-700">SUB-{(shop?.id ?? "").slice(0, 6).toUpperCase()}</dd>
             </dl>
             <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-400">
-              Your first ₦{subscriptionPrice.toLocaleString()} can also be deducted from your first payout instead of paying now — just tell support.
+              Your first ₦{amount.toLocaleString()} can also be deducted from your first payout instead of paying now — just tell support.
             </p>
           </div>
 

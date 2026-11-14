@@ -4,6 +4,7 @@ import { searchListings, getCategories, getPlaces, resolveCity, getWishlistIds, 
 import { ListingCard } from "@/components/cards";
 import { GigCard } from "@/components/gig-card";
 import { LocationFilter } from "@/components/location-filter";
+import { AiSearchBar } from "@/components/ai-search-bar";
 import { EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
@@ -59,15 +60,15 @@ export default async function SearchPage({ searchParams }: { searchParams: SP })
 
   return (
     <div className="space-y-4">
-      <form action="/search" className="flex gap-2">
-        {searchParams.type && <input type="hidden" name="type" value={searchParams.type} />}
-        {searchParams.city && <input type="hidden" name="city" value={searchParams.city} />}
-        <div className="relative flex-1">
-          <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
-          <input name="q" defaultValue={searchParams.q ?? ""} placeholder="Search goods, services, shops…" className="nm-input !py-3 pl-10" aria-label="Search query" />
-        </div>
-        <button className="nm-btn-primary !px-4">Search</button>
-      </form>
+      {/*
+        ── The search bar ────────────────────────────────────────────
+        The AI bar replaces the plain form. It is a superset: typing still
+        does a normal search (it posts to /api/ai/search, which runs the
+        same `searchListings` the form used to), and voice and photo are
+        added beside it. The `action="/search"` form is gone because a
+        voice/photo result cannot be expressed as a GET query string.
+      */}
+      <AiSearchBar initialQuery={searchParams.q ?? ""} />
 
       {/* location filter */}
       <LocationFilter

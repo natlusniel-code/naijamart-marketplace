@@ -9,6 +9,7 @@ import { naira, relTime } from "@/lib/utils";
 import { Avatar, Badge, Spinner, OrderStatusChip } from "@/components/ui";
 import { canGeolocate, coordsLabel, geolocationErrorMessage, getCurrentCoords } from "@/lib/geo";
 import { MapPopup } from "@/components/map-popup";
+import { AiReplySuggestion } from "@/components/seller/ai-reply-suggestion";
 
 type Msg = {
   id: string;
@@ -80,6 +81,7 @@ export function ChatThread({
   basePath = "/chats",
   initialDraft,
   packageIds,
+  aiReplyEnabled = true,
 }: {
   chatId: string;
   meId: string;
@@ -127,6 +129,16 @@ export function ChatThread({
    * from the block list (sql/0027). Empty for a hand-typed message.
    */
   packageIds?: string[];
+  /**
+   * `shops.ai_reply_enabled` for the seller side of this thread.
+   *
+   * When true and the seller is ONLINE, a suggested reply appears above the
+   * composer. When true and the seller is OFFLINE, the server has already
+   * answered on their behalf (see /api/ai/reply) and this only shows the
+   * suggestion once they come back. Off means the seller has turned the AI
+   * out of their shop and nothing appears.
+   */
+  aiReplyEnabled?: boolean;
 }) {
   const router = useRouter();
   /**
@@ -379,6 +391,26 @@ export function ChatThread({
       const saved = result.message;
       setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
       setText("");
+
+      /*
+        ── AI reply trigger ────────────────────────────────────────
+        The BUYER's message is what should wake the seller's AI: a
+        seller who is offline cannot trigger anything, and the whole
+        point is that the reply happens when they are not there.
+
+        Deliberately not awaited and deliberately not error-handled:
+        the message is already saved, the buyer's bubble is already on
+        screen, and a broken AI must not look like a broken chat. The
+        endpoint decides auto-vs-suggest from the seller's presence and
+        does the right thing either way.
+      */
+      if (!amSeller) {
+        void fetch("/api/ai/reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chatId, messageId: saved.id }),
+        }).catch(() => {});
+      }
     }
   }
 
@@ -777,6 +809,24 @@ export function ChatThread({
       )}
 
       {err && <p className="pb-1 text-[11.5px] font-medium text-red-600">{err}</p>}
+
+      {/*
+        AI suggested reply — SELLER SIDE ONLY.
+
+        Shown above the composer so it reads as "here is a reply you could
+        send", not as a message already in the thread. `onUse` drops the
+        text into the composer rather than sending it: the brief is that the
+        seller pushes send, so the draft is always editable and never goes
+        out on its own. `onDismissed` clears the draft so it does not
+        reappear while the seller types something else.
+      */}
+      {amSeller && aiReplyEnabled && (
+        <AiReplySuggestion
+          chatId={chatId}
+          enabled={aiReplyEnabled}
+          onUse={(body) => setText(body)}
+        />
+      )}
 
       {/* image preview — confirm before it is sent (item 5) */}
       {pendingImage && (

@@ -3,6 +3,7 @@ import { getSession, createClient } from "@/lib/supabase/server";
 import { getCategories, getGigPackages } from "@/lib/queries";
 import { ListingForm } from "@/components/seller/listing-form";
 import { PlanEditor } from "@/components/seller/plan-editor";
+import { shopHasFeature } from "@/lib/plan-gate";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Edit listing" };
@@ -40,6 +41,7 @@ export default async function EditListingPage({ params }: { params: { id: string
         shopId={session.shop.id}
         categories={categories.map((c: any) => ({ id: c.id, name: c.name }))}
         listing={listing}
+        aiListingEnabled={await shopHasFeature(session.shop.id, "aiListing")}
         shopDefaults={{
           delivery_fee: Number(shop?.delivery_fee ?? 500),
           free_delivery_threshold: shop?.free_delivery_threshold ? Number(shop.free_delivery_threshold) : null,
