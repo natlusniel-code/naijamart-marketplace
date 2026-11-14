@@ -12,31 +12,30 @@ import {
   pinUrl,
   type Coords,
 } from "@/lib/geo";
+import { MapPopup } from "@/components/map-popup";
 import { Spinner } from "@/components/ui";
 
 /**
  * Where to collect from — shown to a buyer who chose pickup.
  *
- * ── Two links, two jobs ───────────────────────────────────────────────
- * "Open in Maps" drops a pin on the shop, which is what a buyer wants when
- * they are about to leave and just need to see the area.
+ * ── Renders nothing without a location ────────────────────────────────────
+ * A seller who has not set a pickup address or a pin has no location to
+ * show. Printing "the seller has not added a street address yet" on a
+ * checkout card is noise that reads like a broken feature, so this
+ * component returns `null` in that case. The caller does not need to test
+ * for it — the card simply is not there.
  *
- * "Directions from me" is the one the brief asks for: it asks the browser
- * for the buyer's own position and builds a turn-by-turn URL from there to
- * the shop. It needs the buyer's location, so it is a button and never
- * runs on load — a map on a listing page must not prompt for location.
+ * ── The map opens in the page ─────────────────────────────────────────────
+ * "Show on map" opens the in-site popup (src/components/map-popup.tsx)
+ * rather than a new tab, so the buyer keeps their checkout underneath.
+ * "Directions" asks for the buyer's own position and then opens the same
+ * popup with a route link — the position is used only to build that link
+ * and is never saved.
  *
- * ── No key, no SDK ────────────────────────────────────────────────────
- * Every URL comes from src/lib/geo.ts and is a plain https://www.google.com
- * /maps link. Nothing here loads a script or needs an API key.
- *
- * ── Degrading honestly ────────────────────────────────────────────────
- * A shop may have an address with no pin (the common case: the seller typed
- * an address but never stood in the shop with the "use my location" button).
- * Then "Open in Maps" searches the address instead, and directions are given
- * from the buyer's position to that address text — Google geocodes it. A
- * shop with neither shows a plain "ask the seller" line rather than an empty
- * card.
+ * ── No key, no SDK ────────────────────────────────────────────────────────
+ * Every URL comes from src/lib/geo.ts. The in-site map is an OpenStreetMap
+ * tile embed; the Google links are plain `https://www.google.com/maps`
+ * URLs. Nothing here loads a script or needs an API key.
  */
 export function PickupPoint({
   shopName,
@@ -56,12 +55,16 @@ export function PickupPoint({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [fromMe, setFromMe] = useState<Coords | null>(null);
+  const [showMap, setShowMap] = useState(false);
 
   const coords: Coords | null =
     typeof lat === "number" && typeof lng === "number" ? { lat, lng } : null;
 
   const place = (address ?? "").trim();
-  const fallbackPlace = [shopName, city].filter(Boolean).join(", ");
+
+  // No pin and no address: there is no location to show. Say nothing rather
+  // than render an empty card that looks like a bug.
+  if (!coords && !place) return null;
 
   async function directions() {
     setErr("");
@@ -71,33 +74,23 @@ export function PickupPoint({
     }
 
     setBusy(true);
-    // Open the tab inside the click so the popup blocker allows it; the
-    // fix takes a second and the gesture would have expired by then.
-    const tab = window.open("", "_blank", "noopener,noreferrer");
-
     try {
       const me = await getCurrentCoords();
       setFromMe(me);
-
+      // With a pin we can route point-to-point; with only an address Google
+      // geocodes the text, which still lands on the shop.
       const url = coords
         ? directionsUrl(me, coords)
-        : directionsToAddressUrl(me, place || fallbackPlace);
-
-      if (tab) tab.location.href = url;
-      else window.location.href = url;
+        : directionsToAddressUrl(me, place);
+      window.open(url, "_blank", "noopener,noreferrer");
     } catch (e) {
-      try {
-        tab?.close();
-      } catch {
-        /* already gone */
-      }
       setErr(geolocationErrorMessage(e));
     } finally {
       setBusy(false);
     }
   }
 
-  const openUrl = coords ? pinUrl(coords) : addressUrl(place || fallbackPlace);
+  const openUrl = coords ? pinUrl(coords) : addressUrl(place);
 
   return (
     <div
@@ -114,7 +107,7 @@ export function PickupPoint({
             <p className="mt-1 text-[12.5px] leading-relaxed text-ink-600">{place}</p>
           ) : (
             <p className="mt-1 text-[12.5px] leading-relaxed text-ink-500">
-              {fallbackPlace} — the seller has not added a street address yet. Message them for the exact spot.
+              {[shopName, city].filter(Boolean).join(", ")}
             </p>
           )}
           {coords && (
@@ -124,14 +117,25 @@ export function PickupPoint({
       </div>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        <a
-          href={openUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="nm-btn-ghost !px-2.5 !py-1.5 !text-[11.5px]"
-        >
-          🗺️ Open in Maps
-        </a>
+        {coords ? (
+          <button
+            type="button"
+            onClick={() => setShowMap(true)}
+            className="nm-btn-ghost !px-2.5 !py-1.5 !text-[11.5px]"
+            aria-label={`Show ${shopName} on a map`}
+          >
+            🗺️ Show on map
+          </button>
+        ) : (
+          <a
+            href={openUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="nm-btn-ghost !px-2.5 !py-1.5 !text-[11.5px]"
+          >
+            🗺️ Open in Maps
+          </a>
+        )}
 
         <button
           type="button"
@@ -161,6 +165,17 @@ export function PickupPoint({
         <p className="mt-2 text-[10.5px] leading-relaxed text-ink-400">
           Pickup is free — no delivery fee is charged for an order you collect yourself.
         </p>
+      )}
+
+      {showMap && coords && (
+        <MapPopup
+          coords={coords}
+          title={`Pick up from ${shopName}`}
+          subtitle={place || [shopName, city].filter(Boolean).join(", ")}
+          destination={fromMe}
+          destinationLabel={shopName}
+          onClose={() => setShowMap(false)}
+        />
       )}
     </div>
   );

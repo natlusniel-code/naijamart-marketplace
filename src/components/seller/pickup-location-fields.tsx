@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { canGeolocate, coordsLabel, geolocationErrorMessage, getCurrentCoords, pinUrl, type Coords } from "@/lib/geo";
+import { canGeolocate, coordsLabel, geolocationErrorMessage, getCurrentCoords, type Coords } from "@/lib/geo";
+import { MapPopup } from "@/components/map-popup";
 import { Spinner } from "@/components/ui";
 
 /**
@@ -33,6 +34,7 @@ export function PickupLocationFields({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [showMap, setShowMap] = useState(false);
 
   const coords: Coords | null =
     typeof lat === "number" && typeof lng === "number" ? { lat, lng } : null;
@@ -95,14 +97,13 @@ export function PickupLocationFields({
 
         {coords && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <a
-              href={pinUrl(coords)}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => setShowMap(true)}
               className="text-[11.5px] font-semibold text-brand-700 underline"
             >
-              Preview on Google Maps
-            </a>
+              Preview on map
+            </button>
             <span className="text-ink-300">·</span>
             <button
               type="button"
@@ -124,6 +125,15 @@ export function PickupLocationFields({
           Your location is used only to place the pin and is not shared until you save.
         </p>
       </div>
+
+      {showMap && coords && (
+        <MapPopup
+          coords={coords}
+          title="Your shop pickup point"
+          subtitle={address || "This is the pin buyers will be sent to."}
+          onClose={() => setShowMap(false)}
+        />
+      )}
     </div>
   );
 }

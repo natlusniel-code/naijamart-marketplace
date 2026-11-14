@@ -13,7 +13,6 @@ import { GigPackages } from "@/components/gig-packages";
 import { GigReviewForm } from "@/components/gig-review-form";
 import { Gallery } from "@/components/gallery";
 import { WishlistButton } from "@/components/wishlist-button";
-import { PickupPoint } from "@/components/pickup-point";
 import { getWishlistIds } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -132,13 +131,15 @@ export default async function ListingPage({ params }: { params: { id: string } }
         )}
 
         {/* delivery block.
-            Which of the two lines shows is the seller's choice for this
-            listing (sql/0034): a pickup-only item must not advertise a
-            courier, and a delivery-only one must not invite a collection
-            at a shop that has no counter. */}
+            The product page states the DELIVERY terms only. Pickup is a
+            checkout decision — the buyer chooses it in the cart, where the
+            fee actually changes — so advertising a collection point here
+            would offer a choice this page cannot act on, and would leak the
+            seller's shop address to anyone browsing. Pickup appears in the
+            cart, at checkout, on the order page and in chat. */}
         {!isService && (
           <div className="nm-card p-4">
-            <h2 className="text-[14px] font-bold text-ink-900">Delivery &amp; pickup</h2>
+            <h2 className="text-[14px] font-bold text-ink-900">Delivery</h2>
             <div className="mt-2 space-y-1.5 text-[13px] text-ink-600">
               {(l.fulfilment_mode ?? "both") !== "pickup" && (
                 <p className="flex items-start gap-2">
@@ -149,34 +150,26 @@ export default async function ListingPage({ params }: { params: { id: string } }
                   ) : null}
                 </p>
               )}
-              {(l.fulfilment_mode ?? "both") !== "delivery" && (
+              {(l.fulfilment_mode ?? "both") === "pickup" && (
                 <p className="flex items-start gap-2">
-                  <span className="mt-0.5 text-brand-600">🏬</span>
+                  <span className="mt-0.5 text-brand-600">🏪</span>
                   <span>
-                    Pickup {shop.pickup_available ? "available" : "not set up yet"} in {shop.city || shop.state || "the seller's area"} —{" "}
-                    <strong className="text-ink-900">free</strong>
+                    Collection only — this item is picked up from the seller.{" "}
+                    <strong className="text-ink-900">No delivery fee.</strong> Add it to your cart to
+                    see the pickup point.
                   </span>
                 </p>
               )}
-              {(l.fulfilment_mode ?? "both") === "pickup" && (
-                <p className="text-[11.5px] leading-relaxed text-ink-400">
-                  This item is collection only — no delivery fee is ever charged for it.
+              {(l.fulfilment_mode ?? "both") === "both" && (
+                <p className="flex items-start gap-2">
+                  <span className="mt-0.5 text-brand-600">🏪</span>
+                  <span>
+                    Pickup is also available at checkout —{" "}
+                    <strong className="text-ink-900">free</strong>, with no delivery fee.
+                  </span>
                 </p>
               )}
             </div>
-
-            {(l.fulfilment_mode ?? "both") !== "delivery" && shop.pickup_available && (
-              <div className="mt-3">
-                <PickupPoint
-                  shopName={shop.name}
-                  city={shop.city}
-                  address={shop.shop_address ?? null}
-                  lat={shop.shop_lat ?? null}
-                  lng={shop.shop_lng ?? null}
-                  compact
-                />
-              </div>
-            )}
 
             <div className="mt-3 rounded-xl bg-brand-50 px-3 py-2 text-[12px] leading-relaxed text-brand-900">
               Your payment stays with NaijaMart until you confirm you got the item. If it never arrives, you get your money back.

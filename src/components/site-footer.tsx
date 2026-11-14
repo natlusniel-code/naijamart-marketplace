@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { SupportLink } from "@/components/support-link";
-import { ShareLocationButton } from "@/components/share-location-button";
 import { SUPPORT_WHATSAPP_DISPLAY } from "@/lib/support";
 
 /**
@@ -10,6 +9,11 @@ import { SUPPORT_WHATSAPP_DISPLAY } from "@/lib/support";
  * hidden on the mobile tab-bar breakpoint only in the sense that it sits
  * above the fixed tab bar (the layout already reserves `pb-24`), so it never
  * ends up underneath it.
+ *
+ * Location sharing deliberately does NOT live here. A footer button is a
+ * place nobody looks when they are trying to tell a seller where to deliver,
+ * so the entry point moved to the delivery-address block on checkout, where
+ * the buyer is already thinking about their address.
  */
 export function SiteFooter() {
   return (
@@ -33,15 +37,6 @@ export function SiteFooter() {
           <span className="text-ink-300">·</span>
           <span className="text-ink-400">WhatsApp {SUPPORT_WHATSAPP_DISPLAY}</span>
         </div>
-      </div>
-
-      {/* Location sharing.
-          Sits on its own row so the privacy note has room to breathe on a
-          phone, and so the button is not lost among the footer links. The
-          component is client-side only and never sends the coordinates
-          anywhere — see src/components/share-location-button.tsx. */}
-      <div className="mx-auto max-w-7xl border-t border-[var(--line)] px-4 py-4">
-        <ShareLocationButton />
       </div>
     </footer>
   );

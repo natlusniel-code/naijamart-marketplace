@@ -1,17 +1,25 @@
 /**
- * Map links, built from plain URLs.
+ * Map links and the one-shot position read.
  *
- * ── Why no Maps SDK ───────────────────────────────────────────────────
- * Every link here is a normal `https://www.google.com/maps…` URL. There is
- * no JavaScript API, no Embed API and no API key anywhere in the project:
- * a key would have to be shipped to the browser, restricted per domain and
- * paid for, to do something a URL already does. A plain link also works in
- * the in-app browsers (WhatsApp, Instagram) where the SDK often does not.
+ * ── Why no Maps SDK ───────────────────────────────────────────────────────
+ * Every Google link here is a normal `https://www.google.com/maps…` URL.
+ * There is no JavaScript API, no Embed API and no API key anywhere in the
+ * project: a key would have to be shipped to the browser, restricted per
+ * domain and paid for, to do something a URL already does. A plain link also
+ * works in the in-app browsers (WhatsApp, Instagram) where the SDK often
+ * does not.
  *
- * ── Privacy ───────────────────────────────────────────────────────────
+ * ── The in-site map ───────────────────────────────────────────────────────
+ * The popup map is an OpenStreetMap tile embed (`openstreetmap.org/export/
+ * embed.html`). It is a plain URL with no key and no Google dependency, so
+ * the map can live inside the page without an API key. Google Maps is still
+ * one tap away for directions, because that is what a Nigerian buyer
+ * actually navigates with.
+ *
+ * ── Privacy ───────────────────────────────────────────────────────────────
  * Nothing in this file sends anything anywhere. It formats numbers into a
- * string. The coordinates only leave the device when the user's own browser
- * opens the resulting link.
+ * string and reads the browser's own position. The coordinates only leave
+ * the device when the user's own browser opens the resulting link.
  */
 
 /** A coordinate pair, as the browser reports it. */
@@ -83,6 +91,29 @@ export function addressUrl(address: string) {
 }
 
 /**
+ * The in-site map: an OpenStreetMap tile embed around a point.
+ *
+ * `bbox` is west,south,east,north. A ±0.008° box is roughly a 1.5 km square
+ * at Nigerian latitudes — wide enough to show the street and the next one,
+ * tight enough that the pin is not a dot in a city-wide view.
+ *
+ * No key, no SDK, no Google. The iframe is sandboxed by the browser and the
+ * coordinates are in the URL only, never in a request to NaijaMart.
+ */
+export function osmEmbedUrl(c: Coords, span = 0.008) {
+  const west = (c.lng - span).toFixed(5);
+  const south = (c.lat - span).toFixed(5);
+  const east = (c.lng + span).toFixed(5);
+  const north = (c.lat + span).toFixed(5);
+  return (
+    "https://www.openstreetmap.org/export/embed.html" +
+    `?bbox=${west}%2C${south}%2C${east}%2C${north}` +
+    "&layer=mapnik" +
+    `&marker=${fmt(c.lat)}%2C${fmt(c.lng)}`
+  );
+}
+
+/**
  * Human-readable coordinate pair, for the small print under a shared pin.
  * Four decimals is enough to recognise a neighbourhood without printing a
  * number nobody can read.
@@ -96,8 +127,11 @@ export function coordsLabel(c: Coords) {
  *
  * `GeolocationPositionError` codes are fixed by the spec:
  *   1 PERMISSION_DENIED · 2 POSITION_UNAVAILABLE · 3 TIMEOUT
- * Anything else (including a browser with no `geolocation` at all) is
- * reported as unsupported, because that is what it behaves like.
+ * We add two of our own:
+ *   0 no geolocation API at all
+ *   4 the page is not on HTTPS, so the browser silently refuses
+ * Anything else is reported as unsupported, because that is what it
+ * behaves like.
  */
 export function geolocationErrorMessage(err: unknown): string {
   const code = (err as { code?: number } | null)?.code;
@@ -107,7 +141,9 @@ export function geolocationErrorMessage(err: unknown): string {
     case 2:
       return "Your location is unavailable right now. Move somewhere with a clearer signal, or check that location services are switched on.";
     case 3:
-      return "Getting your location took too long. Please try again.";
+      return "We could not get a location fix. Check that location services are on and that you are not indoors with no signal, then try again.";
+    case 4:
+      return "Location sharing needs a secure (https) connection. Open this page over https and try again.";
     default:
       return "This browser does not support location sharing. You can still type your address instead.";
   }
@@ -119,23 +155,120 @@ export function canGeolocate() {
 }
 
 /**
- * One-shot position read, wrapped in a promise.
+ * True when the page is allowed to ask for a position at all.
  *
- * `enableHighAccuracy` is off on purpose: a coarse cell/Wi-Fi fix arrives in
- * a second or two, and for "open my area in Maps" or "where should the rider
- * come to" that is plenty. High accuracy can take 30 s and drains the
- * battery, which is a bad trade on a phone in a shop.
+ * Browsers only expose geolocation on a secure context. On plain http the
+ * API exists but every call fails with PERMISSION_DENIED, which reads to the
+ * user as "you said no" when they never saw a prompt. Checking up front lets
+ * us say the real reason.
  */
-export function getCurrentCoords(timeoutMs = 12000): Promise<Coords> {
+export function isSecureContextOk() {
+  if (typeof window === "undefined") return false;
+  if (window.isSecureContext) return true;
+  const h = window.location.hostname;
+  return h === "localhost" || h === "127.0.0.1" || h === "[::1]";
+}
+
+/** The permission state, when the browser will tell us. */
+async function permissionState(): Promise<PermissionState | "unknown"> {
+  try {
+    if (typeof navigator === "undefined" || !navigator.permissions?.query) return "unknown";
+    const status = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+    return status.state;
+  } catch {
+    // Safari and some in-app browsers do not implement this query.
+    return "unknown";
+  }
+}
+
+/** One `getCurrentPosition` call, as a promise. */
+function once(opts: PositionOptions): Promise<Coords> {
   return new Promise((resolve, reject) => {
-    if (!canGeolocate()) {
-      reject(new Error("unsupported"));
-      return;
+    let settled = false;
+    const done = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
+    // A watchdog on top of the browser's own timeout. Some Android WebViews
+    // and in-app browsers never fire either callback when the GPS chip is
+    // asleep, which is exactly the "took too long" the user saw. Our timer
+    // is a little longer than the browser's so the browser's own TIMEOUT
+    // (with its better message) wins when it does fire.
+    const guard = setTimeout(() => {
+      done(() => reject({ code: 3 }));
+    }, (opts.timeout ?? 10000) + 1500);
+
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) =>
+          done(() => {
+            clearTimeout(guard);
+            resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          }),
+        (err) =>
+          done(() => {
+            clearTimeout(guard);
+            reject(err);
+          }),
+        opts,
+      );
+    } catch (e) {
+      done(() => {
+        clearTimeout(guard);
+        reject(e);
+      });
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => reject(err),
-      { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 60000 },
-    );
   });
+}
+
+/**
+ * One-shot position read, with a retry ladder.
+ *
+ * ── Why a ladder ──────────────────────────────────────────────────────────
+ * A single high-accuracy request is the wrong default on a phone: indoors it
+ * can burn the full timeout and then fail, which is the bug this replaces.
+ * So we try three times, each cheaper than the last:
+ *
+ *   1. high accuracy, 8 s, no cache    — the good fix, when the sky is visible
+ *   2. coarse,       12 s, 5 min cache — cell/Wi-Fi, usually instant
+ *   3. coarse,       20 s, any cache   — accepts a stale fix rather than fail
+ *
+ * A PERMISSION_DENIED is terminal: retrying cannot help, and asking three
+ * times would look like a broken button. Everything else falls through to
+ * the next rung, and only the last error is reported.
+ *
+ * ── Stale permission ──────────────────────────────────────────────────────
+ * If the browser says the permission is already `granted` but the first fix
+ * times out, that is almost always a cold GPS chip rather than a refusal —
+ * rung 2 and 3 then return a cached or coarse position instead of failing.
+ * If it says `denied`, we fail immediately with the honest message instead
+ * of waiting 40 s for three timeouts.
+ */
+export async function getCurrentCoords(): Promise<Coords> {
+  if (!canGeolocate()) throw { code: 0 };
+  if (!isSecureContextOk()) throw { code: 4 };
+
+  const state = await permissionState();
+  if (state === "denied") throw { code: 1 };
+
+  const attempts: PositionOptions[] = [
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+    { enableHighAccuracy: false, timeout: 12000, maximumAge: 5 * 60 * 1000 },
+    { enableHighAccuracy: false, timeout: 20000, maximumAge: Infinity },
+  ];
+
+  let last: unknown = { code: 3 };
+  for (const opts of attempts) {
+    try {
+      return await once(opts);
+    } catch (e) {
+      last = e;
+      // A refusal is final. A timeout or an unavailable fix is worth another
+      // try with a cheaper strategy.
+      if ((e as { code?: number })?.code === 1) throw e;
+    }
+  }
+  throw last;
 }

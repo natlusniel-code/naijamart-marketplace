@@ -7,7 +7,8 @@ import { useRouter } from "next/navigation";
 import { createClient, uploadToBucket } from "@/lib/supabase/client";
 import { naira, relTime } from "@/lib/utils";
 import { Avatar, Badge, Spinner, OrderStatusChip } from "@/components/ui";
-import { canGeolocate, coordsLabel, geolocationErrorMessage, getCurrentCoords, pinUrl } from "@/lib/geo";
+import { canGeolocate, coordsLabel, geolocationErrorMessage, getCurrentCoords } from "@/lib/geo";
+import { MapPopup } from "@/components/map-popup";
 
 type Msg = {
   id: string;
@@ -178,6 +179,8 @@ export function ChatThread({
   const [pendingLocation, setPendingLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [locLabel, setLocLabel] = useState("");
+  /** A shared pin the receiver tapped, shown in the in-site map popup. */
+  const [openPin, setOpenPin] = useState<{ lat: number; lng: number; label?: string | null } | null>(null);
   const top = useRef<HTMLDivElement | null>(null);
   const box = useRef<HTMLTextAreaElement | null>(null);
 
@@ -685,13 +688,15 @@ export function ChatThread({
                     one) is shown above the pin so "my shop gate" is readable
                     without opening Maps. */}
                 {typeof m.lat === "number" && typeof m.lng === "number" && (
-                  <a
-                    href={pinUrl({ lat: m.lat, lng: m.lng })}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`mb-1 flex items-center gap-2 rounded-xl px-2.5 py-2 ${
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenPin({ lat: m.lat!, lng: m.lng!, label: m.location_label })
+                    }
+                    className={`mb-1 flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left ${
                       mine ? "bg-white/15 hover:bg-white/25" : "bg-brand-50 hover:bg-brand-100"
                     }`}
+                    aria-label={`Open ${m.location_label || "shared location"} on a map`}
                   >
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-500 text-[15px] text-white">
                       📍
@@ -701,10 +706,10 @@ export function ChatThread({
                         {m.location_label || "Shared location"}
                       </span>
                       <span className={`block font-mono text-[10px] ${mine ? "text-white/70" : "text-ink-500"}`}>
-                        {coordsLabel({ lat: m.lat, lng: m.lng })} · open in Maps
+                        {coordsLabel({ lat: m.lat, lng: m.lng })} · tap to view map
                       </span>
                     </span>
-                  </a>
+                  </button>
                 )}
                 {m.body && <p className="whitespace-pre-line">{m.body}</p>}
                 <p className={`mt-1 flex items-center gap-1 text-[10px] ${mine ? "justify-end text-white/60" : "text-ink-400"}`}>
@@ -820,14 +825,13 @@ export function ChatThread({
               <span className="block font-mono text-[12px] font-semibold text-ink-900">
                 {coordsLabel(pendingLocation)}
               </span>
-              <a
-                href={pinUrl(pendingLocation)}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={() => setOpenPin({ lat: pendingLocation.lat, lng: pendingLocation.lng, label: locLabel })}
                 className="text-[11px] font-semibold text-brand-700 underline"
               >
-                Preview on Google Maps
-              </a>
+                Preview on map
+              </button>
             </span>
           </div>
 
@@ -989,6 +993,18 @@ export function ChatThread({
           Send
         </button>
       </form>
+      )}
+
+      {/* A shared pin, opened in the in-site map rather than a new tab so the
+          conversation stays underneath. Rendered at the root of the thread so
+          the overlay is not clipped by the message list's overflow. */}
+      {openPin && (
+        <MapPopup
+          coords={{ lat: openPin.lat, lng: openPin.lng }}
+          title={openPin.label || "Shared location"}
+          subtitle="Tap Directions to route from where you are."
+          onClose={() => setOpenPin(null)}
+        />
       )}
     </div>
   );

@@ -6,6 +6,7 @@ import { readCart, writeCart, setQuantity, setFulfilment, removeShop, shopSubtot
 import { naira, discountPercent } from "@/lib/utils";
 import { EmptyState, Alert, Badge } from "@/components/ui";
 import { StartConversationButton } from "@/components/start-conversation-button";
+import { PickupPoint } from "@/components/pickup-point";
 
 export function CartView() {
   const [cart, setCart] = useState<Cart | null>(null);
@@ -225,11 +226,22 @@ function ShopGroup({ shop }: { shop: CartShop }) {
               </div>
 
               {shop.fulfilment === "pickup" && (
-                <p className="mt-2 text-[11.5px] leading-relaxed text-ink-500">
-                  Collect from {shop.shopName}
-                  {shop.pickupAddress ? ` — ${shop.pickupAddress}` : ` in ${shop.city || "their shop"}`}.
-                  No delivery fee is charged.
-                </p>
+                <div className="mt-2.5">
+                  {/* The pickup card renders nothing when the seller has no
+                      address and no pin, so a shop that never set a location
+                      shows no empty box here. */}
+                  <PickupPoint
+                    shopName={shop.shopName}
+                    city={shop.city}
+                    address={shop.pickupAddress ?? null}
+                    lat={shop.pickupLat ?? null}
+                    lng={shop.pickupLng ?? null}
+                    compact
+                  />
+                  <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-500">
+                    No delivery fee is charged for an order you collect yourself.
+                  </p>
+                </div>
               )}
             </>
           )}

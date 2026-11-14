@@ -10,6 +10,9 @@ import { Spinner, Alert, Badge } from "@/components/ui";
 import { SupportLink } from "@/components/support-link";
 import { CopyValue, CopyPaymentDetails } from "@/components/copy-value";
 import { PickupPoint } from "@/components/pickup-point";
+import { ShareLocationButton } from "@/components/share-location-button";
+import { MapPopup } from "@/components/map-popup";
+import { coordsLabel, type Coords } from "@/lib/geo";
 
 type SavedAddress = {
   id: string;
@@ -52,6 +55,16 @@ export function CheckoutFlow({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [agreed, setAgreed] = useState(false);
+  /**
+   * The buyer's own position, when they chose to share it.
+   *
+   * Held in component state only — never written to Supabase, never put in
+   * localStorage. It is appended to the address text the order is placed
+   * with, so the rider gets a pin, and it is dropped when the buyer clears
+   * it or leaves the page.
+   */
+  const [myCoords, setMyCoords] = useState<Coords | null>(null);
+  const [showMyMap, setShowMyMap] = useState(false);
 
   useEffect(() => {
     setCart(readCart());
@@ -111,9 +124,15 @@ export function CheckoutFlow({
   }
 
   const addressObj = addressesState.find((a) => a.id === chosenAddress);
-  const addressText = addressObj
+  const baseAddress = addressObj
     ? `${addressObj.label}: ${addressObj.line1}, ${addressObj.city ?? ""} ${addressObj.state ?? ""}`.trim()
     : "";
+  // A shared pin is appended to the address the order is placed with, so the
+  // rider has coordinates as well as words. It is part of the address text
+  // and nothing else — there is no separate location column and no upload.
+  const addressText = myCoords
+    ? `${baseAddress}${baseAddress ? " " : ""}(pin: ${coordsLabel(myCoords)})`
+    : baseAddress;
 
   /**
    * Distance rule, mirrored from place_order() so the buyer sees the same
@@ -341,6 +360,62 @@ export function CheckoutFlow({
               </div>
             </div>
           )}
+
+          {/* Share my location.
+              Lives here, in the delivery-address block, because this is the
+              moment the buyer is thinking about where the rider should go.
+              A footer button was the wrong place: nobody scrolls to the
+              bottom of the page to answer "where do you live?".
+
+              The pin is optional and additive — the typed address still
+              works on its own. It is held in component state and appended to
+              the address text at submit time; nothing is uploaded and there
+              is no location column in the database. */}
+          <div className="mt-3 rounded-xl border border-[var(--line)] bg-slate-50/70 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[12px] font-semibold text-ink-900">
+                  Add your exact location (optional)
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-ink-500">
+                  {myCoords
+                    ? `Pinned at ${coordsLabel(myCoords)} — the rider will get this pin with your address.`
+                    : "Helps the rider find you. Your browser will ask for permission when you tap the button."}
+                </p>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                <ShareLocationButton
+                  compact
+                  showPrivacyNote={false}
+                  label={myCoords ? "Update location" : "Share My Location"}
+                  onLocated={(c) => setMyCoords(c)}
+                />
+                {myCoords && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowMyMap(true)}
+                      className="text-[11.5px] font-semibold text-brand-700 underline"
+                    >
+                      View map
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMyCoords(null)}
+                      className="text-[11.5px] font-semibold text-ink-400 hover:text-red-600"
+                    >
+                      Remove
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <p className="mt-2 text-[10.5px] leading-relaxed text-ink-400">
+              Your location is used only to open Google Maps and is not stored on this website.
+            </p>
+          </div>
         </div>
         )}
 
@@ -504,6 +579,17 @@ export function CheckoutFlow({
             placeholder={allServiceOnly ? "Anything the provider should know about the job…" : "Any delivery instruction…"} />
         </div>
       </div>
+
+      {/* The buyer's own pin, opened from "View map" in the address block.
+          Rendered at the root so the overlay is not clipped by the card. */}
+      {showMyMap && myCoords && (
+        <MapPopup
+          coords={myCoords}
+          title="Your delivery location"
+          subtitle="The rider will get this pin with your address."
+          onClose={() => setShowMyMap(false)}
+        />
+      )}
 
       {/* summary */}
       <div className="nm-card p-4 lg:sticky lg:top-20">

@@ -1,39 +1,57 @@
 "use client";
 
 import { useState } from "react";
-import { canGeolocate, geolocationErrorMessage, getCurrentCoords, pinUrl } from "@/lib/geo";
+import { canGeolocate, geolocationErrorMessage, getCurrentCoords, type Coords } from "@/lib/geo";
+import { MapPopup } from "@/components/map-popup";
+import { Spinner } from "@/components/ui";
 
 /**
- * "Share My Location" — the footer button.
+ * "Share My Location".
  *
- * ── What it does ──────────────────────────────────────────────────────
+ * ── What it does ──────────────────────────────────────────────────────────
  * On click (and only on click) it asks the browser for one position fix and
- * opens Google Maps at that point in a new tab. Nothing is uploaded, stored
- * or sent to NaijaMart: the coordinates go from the browser's geolocation
- * API straight into a URL that the browser itself opens. There is no fetch,
- * no Supabase call and no analytics event in this component.
+ * shows the result on a map that opens *inside* the page. Nothing is
+ * uploaded, stored or sent to NaijaMart: the coordinates go from the
+ * browser's geolocation API into a map URL that the browser itself loads.
+ * There is no fetch, no Supabase call and no analytics event here.
  *
- * ── Why the button is disabled until clicked ──────────────────────────
+ * ── Why the map is a popup, not a new tab ─────────────────────────────────
+ * A new tab loses the page the buyer was on. The popup keeps the checkout
+ * or the chat underneath, and closing it puts them back exactly where they
+ * were. See src/components/map-popup.tsx.
+ *
+ * ── Why the request lives in onClick ──────────────────────────────────────
  * `navigator.geolocation` must be called from a user gesture on some
  * browsers, and asking on page load would be a permission prompt the
- * visitor never invited. So the request lives entirely inside `onClick`.
+ * visitor never invited. So nothing runs until the button is pressed.
  *
- * ── Why the tab is opened before the fix ──────────────────────────────
- * A popup blocker only allows `window.open` while the click is still "live".
- * A geolocation fix takes a second or two, by which time the gesture has
- * expired and the tab would be blocked. So the tab is opened immediately
- * (blank), and its location is set once the coordinates arrive. If the fix
- * fails, the blank tab is closed again — the visitor never sees a stray
- * about:blank.
+ * ── Why the button text is restored ───────────────────────────────────────
+ * The label flips to "Getting your location…" while the fix is in flight and
+ * back to its original text in `finally`, so a failure never leaves the
+ * button stuck on a loading state.
  */
-export function ShareLocationButton({ className = "" }: { className?: string }) {
+export function ShareLocationButton({
+  className = "",
+  label = "Share My Location",
+  /** Called with the fix, for a caller that wants to keep it (e.g. checkout). */
+  onLocated,
+  /** Show the privacy note under the button. Off inside a card that has one. */
+  showPrivacyNote = true,
+  /** Compact styling for a dense form row. */
+  compact = false,
+}: {
+  className?: string;
+  label?: string;
+  onLocated?: (c: Coords) => void;
+  showPrivacyNote?: boolean;
+  compact?: boolean;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
+  const [coords, setCoords] = useState<Coords | null>(null);
 
   async function share() {
     setError("");
-    setDone(false);
 
     if (!canGeolocate()) {
       setError(geolocationErrorMessage(null));
@@ -41,30 +59,11 @@ export function ShareLocationButton({ className = "" }: { className?: string }) 
     }
 
     setBusy(true);
-
-    // Open the tab now, while the click still counts as a user gesture.
-    // `noopener` keeps the new tab from touching this window.
-    const tab = window.open("", "_blank", "noopener,noreferrer");
-
     try {
-      const coords = await getCurrentCoords();
-      const url = pinUrl(coords);
-
-      if (tab) {
-        tab.location.href = url;
-      } else {
-        // The popup was blocked. Fall back to a same-tab navigation so the
-        // feature still works — the visitor can press Back.
-        window.location.href = url;
-      }
-      setDone(true);
+      const c = await getCurrentCoords();
+      setCoords(c);
+      onLocated?.(c);
     } catch (e) {
-      // Close the blank tab we opened; leaving it would look like a bug.
-      try {
-        tab?.close();
-      } catch {
-        /* the tab may already be gone — nothing to do */
-      }
       setError(geolocationErrorMessage(e));
     } finally {
       setBusy(false);
@@ -77,17 +76,23 @@ export function ShareLocationButton({ className = "" }: { className?: string }) 
         type="button"
         onClick={share}
         disabled={busy}
-        aria-label="Share my location — opens your current position in Google Maps"
+        aria-label={`${label} — asks your browser for permission, then shows your position on a map`}
         aria-busy={busy}
-        className="nm-btn-ghost inline-flex items-center gap-1.5 !px-3 !py-1.5 !text-[12px] disabled:opacity-60"
+        className={
+          compact
+            ? "nm-btn-ghost inline-flex items-center gap-1.5 !px-2.5 !py-1.5 !text-[11.5px] disabled:opacity-60"
+            : "nm-btn-ghost inline-flex items-center gap-1.5 !px-3 !py-1.5 !text-[12px] disabled:opacity-60"
+        }
       >
-        <span aria-hidden="true">{busy ? "📍" : "📍"}</span>
-        {busy ? "Getting your location…" : "Share My Location"}
+        {busy ? <Spinner className="!h-3.5 !w-3.5" /> : <span aria-hidden="true">📍</span>}
+        {busy ? "Getting your location…" : label}
       </button>
 
-      <p className="mt-1.5 max-w-[34ch] text-[10.5px] leading-relaxed text-ink-400">
-        Your location is used only to open Google Maps and is not stored on this website.
-      </p>
+      {showPrivacyNote && (
+        <p className="mt-1.5 max-w-[34ch] text-[10.5px] leading-relaxed text-ink-400">
+          Your location is used only to open Google Maps and is not stored on this website.
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="mt-1.5 max-w-[38ch] text-[11px] font-medium leading-relaxed text-red-600">
@@ -95,10 +100,13 @@ export function ShareLocationButton({ className = "" }: { className?: string }) 
         </p>
       )}
 
-      {done && !error && (
-        <p role="status" className="mt-1.5 text-[11px] font-medium text-brand-700">
-          Opened in Google Maps.
-        </p>
+      {coords && (
+        <MapPopup
+          coords={coords}
+          title="Your location"
+          subtitle="This is where your browser says you are."
+          onClose={() => setCoords(null)}
+        />
       )}
     </div>
   );
